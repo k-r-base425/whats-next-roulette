@@ -1,4 +1,4 @@
-const CACHE = "whats-next-v2";
+const CACHE = "whats-next-v3";
 const BASE = new URL("./", self.location.href).pathname;
 const CORE = [`${BASE}manifest.webmanifest`, `${BASE}icon-192.png`, `${BASE}icon-512.png`];
 

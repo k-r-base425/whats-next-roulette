@@ -54,6 +54,20 @@ type NavigatorWithWakeLock = Navigator & { wakeLock?: { request: (kind: "screen"
 
 const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const item = (label: string, minutes?: number): Candidate => ({ id: uid(), label, enabled: true, minutes });
+const makeRecoveryPreset = (): Preset => ({
+  id: "recovery",
+  name: "回復",
+  icon: "≋",
+  tone: "sky",
+  description: "心と体をゆるめる",
+  items: [
+    item("1分 深呼吸を5回する", 1), item("1分 遠くを眺める", 1), item("1分 水を飲む", 1),
+    item("3分 目を閉じて休む", 3), item("3分 首と肩をゆっくり回す", 3), item("3分 静かな音を聴く", 3),
+    item("5分 全身を伸ばす", 5), item("5分 温かい飲み物を飲む", 5), item("5分 何もせず休む", 5),
+    item("10分 横になって休む", 10), item("10分 スマホを置いて過ごす", 10), item("10分 ゆっくり散歩する", 10),
+    item("15分 短い仮眠をとる", 15), item("15分 静かな場所で休む", 15), item("15分 好きな音楽で気分を整える", 15),
+  ],
+});
 
 const makeDefaults = (): AppData => ({
   version: 1,
@@ -109,6 +123,7 @@ const makeDefaults = (): AppData => ({
       journey: true,
       items: [],
     },
+    makeRecoveryPreset(),
   ],
   decisions: [],
   journeys: [],
@@ -116,7 +131,16 @@ const makeDefaults = (): AppData => ({
   speech: true,
 });
 
+const ensureRecoveryPreset = (data: AppData): AppData => {
+  if (data.presets.some((preset) => preset.id === "recovery")) return data;
+  const presets = [...data.presets];
+  const bicycleIndex = presets.findIndex((preset) => preset.id === "bicycle");
+  presets.splice(bicycleIndex >= 0 ? bicycleIndex + 1 : presets.length, 0, makeRecoveryPreset());
+  return { ...data, presets };
+};
+
 const STORAGE_KEY = "whats-next-app-v1";
+const MAX_PRESETS = 51;
 const directions = ["次に安全に曲がれる場所で左へ", "次に安全に曲がれる場所で右へ", "そのまま直進", "次の信号まで直進", "次の分かれ道は好きな方へ", "景色が気になる方へ進む", "明るく走りやすい道を選ぶ"];
 const routeStyles = ["緑の多い道", "静かな細道", "見晴らしのよい道", "平坦で走りやすい道", "川沿いの道", "にぎやかな通り", "住宅街の道"];
 const journeyThemes = ["景色を探す", "色を探す", "店を探す", "季節を探す", "面白い名前を探す", "建物を眺める", "直感にまかせる"];
@@ -148,11 +172,21 @@ const isActiveJourney = (value: unknown): value is Journey => isRecord(value) &&
 
 function safeData(value: unknown): value is AppData {
   if (!isRecord(value) || value.version !== 1 || typeof value.speech !== "boolean") return false;
-  if (!Array.isArray(value.presets) || value.presets.length < 1 || value.presets.length > 50 || !value.presets.every(isPreset)) return false;
+  if (!Array.isArray(value.presets) || value.presets.length < 1 || value.presets.length > MAX_PRESETS || !value.presets.every(isPreset)) return false;
   if (!value.presets.some((preset) => !preset.journey)) return false;
   if (!Array.isArray(value.decisions) || value.decisions.length > 1000 || !value.decisions.every(isDecision)) return false;
   if (!Array.isArray(value.journeys) || value.journeys.length > 100 || !value.journeys.every(isJourneyLog)) return false;
   return value.activeJourney === null || isActiveJourney(value.activeJourney);
+}
+
+function PresetGlyph({ id }: { id: string }) {
+  const common = { fill: "none", stroke: "currentColor", strokeWidth: 2.2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  if (id === "work") return <svg viewBox="0 0 32 32" aria-hidden="true"><path {...common} d="M5 11h22v15H5zM11 11V7h10v4M5 16h22M14 16v4h4v-4" /></svg>;
+  if (id === "play") return <svg viewBox="0 0 32 32" aria-hidden="true"><path {...common} d="M9 12h14c3 0 5 3 6 10 .4 3-3 5-5 3l-4-4h-8l-4 4c-2 2-5-.1-5-3 1-7 3-10 6-10Z" /><path {...common} d="M9 16v5M6.5 18.5h5M22 17h.1M25 20h.1" /></svg>;
+  if (id === "solo") return <svg viewBox="0 0 32 32" aria-hidden="true"><path {...common} d="M5 7c5-1 8 0 11 3v16c-3-3-6-4-11-3V7Zm22 0c-5-1-8 0-11 3v16c3-3 6-4 11-3V7Z" /></svg>;
+  if (id === "bicycle") return <svg viewBox="0 0 32 32" aria-hidden="true"><circle {...common} cx="8" cy="22" r="5" /><circle {...common} cx="24" cy="22" r="5" /><path {...common} d="m8 22 5-9 5 9H8Zm10 0 4-11h4M12 10h5M13 13h8" /></svg>;
+  if (id === "recovery") return <svg viewBox="0 0 32 32" aria-hidden="true"><path {...common} d="M4 10c4-4 7 4 11 0s7 4 13 0M4 16c4-4 7 4 11 0s7 4 13 0M4 22c4-4 7 4 11 0s7 4 13 0" /></svg>;
+  return <svg viewBox="0 0 32 32" aria-hidden="true"><path {...common} d="M16 4v24M4 16h24M8 8l16 16M24 8 8 24" /></svg>;
 }
 
 export default function Home() {
@@ -182,6 +216,7 @@ export default function Home() {
 
   const activePreset = data.presets.find((preset) => preset.id === activeId) ?? data.presets[0];
   const managedPreset = data.presets.find((preset) => preset.id === manageId) ?? data.presets[0];
+  const homePresets = ["work", "play", "solo", "bicycle", "recovery"].map((id) => data.presets.find((preset) => preset.id === id)).filter((preset): preset is Preset => Boolean(preset));
   const enabledItems = useMemo(() => activePreset?.items.filter((entry) => entry.enabled) ?? [], [activePreset]);
   const previewWheelItems = useMemo(() => enabledItems.length ? Array.from({ length: 6 }, (_, index) => enabledItems[Math.floor(index * enabledItems.length / 6)]) : [], [enabledItems]);
   const visibleWheelItems = wheelSet?.presetId === activePreset?.id ? wheelSet.items : previewWheelItems;
@@ -209,7 +244,7 @@ export default function Home() {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed: unknown = JSON.parse(saved);
-        if (safeData(parsed)) savedData = parsed;
+        if (safeData(parsed)) savedData = ensureRecoveryPreset(parsed);
       }
     } catch {
       loadFailed = true;
@@ -265,7 +300,7 @@ export default function Home() {
             oscillator.stop(ctx.currentTime + 0.7);
           }
         } catch { /* visual completion remains available */ }
-        setNotice("休憩終了！ゆっくり仕事に戻ろう。");
+        setNotice("時間になりました。ゆっくり次の行動へ移ろう。");
         setView("home");
       }
     };
@@ -392,21 +427,24 @@ export default function Home() {
   }
 
   function drawJourneyStep(status: "done" | "skipped", missionOnly = false) {
-    let nextStep: JourneyStep | null = null;
+    const previous = data.activeJourney?.steps.at(-1);
+    if (!previous) return;
+    const nextStep = makeJourneyStep(previous, missionOnly);
     setData((current) => {
       if (!current.activeJourney) return current;
       const steps = [...current.activeJourney.steps];
       const last = steps[steps.length - 1];
-      const next = makeJourneyStep(last, missionOnly);
-      nextStep = next;
       if (last?.status === "active") steps[steps.length - 1] = { ...last, status };
-      steps.push(next);
+      steps.push(nextStep);
       return { ...current, activeJourney: { ...current.activeJourney, steps } };
     });
-    queueMicrotask(() => { if (nextStep) animateJourneyStep(nextStep); });
+    queueMicrotask(() => animateJourneyStep(nextStep));
   }
 
   function finishJourney() {
+    if (reelInterval.current) window.clearInterval(reelInterval.current);
+    if (reelTimeout.current) window.clearTimeout(reelTimeout.current);
+    setJourneySpinning(false);
     setData((current) => {
       if (!current.activeJourney) return current;
       const steps = current.activeJourney.steps.map((step) => step.status === "active" ? { ...step, status: "skipped" as const } : step);
@@ -424,12 +462,13 @@ export default function Home() {
   function addCandidate() {
     const label = newItem.trim();
     if (!label || !managedPreset || managedPreset.journey) return;
-    const workMinutes = managedPreset.id === "work" ? Number(label.match(/^(1|3|5|10|15)分/)?.[1] ?? 0) : undefined;
-    if (managedPreset.id === "work" && !workMinutes) {
-      setNotice("仕事の候補は「1分・3分・5分・10分・15分」のどれかから始めてください。");
+    const timedPreset = managedPreset.id === "work" || managedPreset.id === "recovery";
+    const minutes = timedPreset ? Number(label.match(/^(1|3|5|10|15)分/)?.[1] ?? 0) : undefined;
+    if (timedPreset && !minutes) {
+      setNotice(`${managedPreset.name}の候補は「1分・3分・5分・10分・15分」のどれかから始めてください。`);
       return;
     }
-    updatePreset(managedPreset.id, (preset) => ({ ...preset, items: [...preset.items, item(label, workMinutes)] }));
+    updatePreset(managedPreset.id, (preset) => ({ ...preset, items: [...preset.items, item(label, minutes)] }));
     setNewItem("");
   }
 
@@ -437,12 +476,13 @@ export default function Home() {
     if (!managedPreset) return;
     const next = window.prompt("候補を編集", candidate.label)?.trim();
     if (!next || next === candidate.label) return;
-    const workMinutes = managedPreset.id === "work" ? Number(next.match(/^(1|3|5|10|15)分/)?.[1] ?? 0) : candidate.minutes;
-    if (managedPreset.id === "work" && !workMinutes) {
-      setNotice("仕事の候補は「1分・3分・5分・10分・15分」のどれかから始めてください。");
+    const timedPreset = managedPreset.id === "work" || managedPreset.id === "recovery";
+    const minutes = timedPreset ? Number(next.match(/^(1|3|5|10|15)分/)?.[1] ?? 0) : candidate.minutes;
+    if (timedPreset && !minutes) {
+      setNotice(`${managedPreset.name}の候補は「1分・3分・5分・10分・15分」のどれかから始めてください。`);
       return;
     }
-    updatePreset(managedPreset.id, (preset) => ({ ...preset, items: preset.items.map((entry) => entry.id === candidate.id ? { ...entry, label: next, minutes: workMinutes || undefined } : entry) }));
+    updatePreset(managedPreset.id, (preset) => ({ ...preset, items: preset.items.map((entry) => entry.id === candidate.id ? { ...entry, label: next, minutes: minutes || undefined } : entry) }));
   }
 
   function goHome() {
@@ -452,12 +492,36 @@ export default function Home() {
       wakeLock.current?.release().catch(() => undefined);
       wakeLock.current = null;
     }
+    if (view === "journey" && journeySpinning) {
+      if (reelInterval.current) window.clearInterval(reelInterval.current);
+      if (reelTimeout.current) window.clearTimeout(reelTimeout.current);
+      setJourneySpinning(false);
+    }
     setView("home");
+  }
+
+  function openSettings() {
+    if (view === "timer" && timer) {
+      if (!window.confirm("タイマーを終了して設定を開きますか？")) return;
+      setTimer(null);
+      wakeLock.current?.release().catch(() => undefined);
+      wakeLock.current = null;
+    }
+    if (view === "journey" && journeySpinning) {
+      if (reelInterval.current) window.clearInterval(reelInterval.current);
+      if (reelTimeout.current) window.clearTimeout(reelTimeout.current);
+      setJourneySpinning(false);
+    }
+    setView("settings");
   }
 
   function createPreset() {
     const name = newPreset.trim();
     if (!name) return;
+    if (data.presets.length >= MAX_PRESETS) {
+      setNotice(`プリセットは${MAX_PRESETS}件まで作成できます。`);
+      return;
+    }
     const preset: Preset = { id: uid(), name, icon: "✺", tone: "sky", description: "あなたが作ったオリジナルプリセット", custom: true, items: [] };
     setData((current) => ({ ...current, presets: [...current.presets, preset] }));
     setManageId(preset.id);
@@ -482,8 +546,9 @@ export default function Home() {
       const parsed: unknown = JSON.parse(await file.text());
       if (!safeData(parsed)) throw new Error("invalid");
       if (window.confirm("現在のデータを、このバックアップで置き換えますか？")) {
-        setData(parsed);
-        setActiveId(parsed.presets[0]?.id ?? "work");
+        const migrated = ensureRecoveryPreset(parsed);
+        setData(migrated);
+        setActiveId(migrated.presets[0]?.id ?? "work");
         setNotice("バックアップを読み込みました。");
       }
     } catch {
@@ -500,6 +565,12 @@ export default function Home() {
     setActiveId("work");
     setManageId("work");
     setResult(null);
+    setTimer(null);
+    wakeLock.current?.release().catch(() => undefined);
+    wakeLock.current = null;
+    if (reelInterval.current) window.clearInterval(reelInterval.current);
+    if (reelTimeout.current) window.clearTimeout(reelTimeout.current);
+    setJourneySpinning(false);
     setNotice("初期状態に戻しました。");
     setView("home");
   }
@@ -529,21 +600,29 @@ export default function Home() {
           <button className="brand" onClick={goHome} aria-label="ホームへ戻る">
             <span className="brand-mark">↗</span><span>What’s Next?</span>
           </button>
-          <button className="icon-button" onClick={() => setView("settings")} aria-label="設定を開く">•••</button>
+          <button className="icon-button" onClick={openSettings} aria-label="設定を開く">•••</button>
         </header>
 
         {notice && <button className="notice" onClick={() => setNotice("")} aria-live="polite">{notice}<span>×</span></button>}
 
         {view === "home" && activePreset && (
           <div className="view home-view">
-            <div className="hero-copy"><p className="eyebrow">YOUR NEXT MOVE</p><h1>ひまな時間を、<br /><em>次の一歩</em>に。</h1></div>
+            <section className="mode-question" aria-labelledby="mode-question-title">
+              <svg className="prompt-avatar" viewBox="0 0 88 82" aria-hidden="true">
+                <path d="M10 72c1-17 11-27 27-29 17 2 26 12 27 29" />
+                <circle cx="37" cy="29" r="23" />
+                <circle className="avatar-eye" cx="29" cy="26" r="2" /><circle className="avatar-eye" cx="45" cy="26" r="2" />
+                <path d="M29 35c5 5 11 5 16 0M62 43l13 8-2-15" />
+                <text x="67" y="21">?</text>
+              </svg>
+              <div><h1 id="mode-question-title">いま、どんな時間にする？</h1><p><span>●</span> 5つのモードから選ぶ <span>●</span></p></div>
+            </section>
             <div className="preset-grid" aria-label="プリセットを選ぶ">
-              {data.presets.slice(0, 4).map((preset) => (
-                <button key={preset.id} className={`preset-card ${preset.tone} ${activeId === preset.id ? "selected" : ""}`} aria-pressed={activeId === preset.id} onClick={() => { setActiveId(preset.id); setResult(null); }}>
-                  <span className="preset-icon">{preset.icon}</span><span><b>{preset.name}</b><small>{preset.journey ? "冒険モード" : `${preset.items.filter((entry) => entry.enabled).length}の候補`}</small></span>
+              {homePresets.map((preset) => (
+                <button key={preset.id} className={`preset-card ${preset.tone} ${preset.id === "recovery" ? "recovery-card" : ""} ${activeId === preset.id ? "selected" : ""}`} aria-pressed={activeId === preset.id} disabled={spinning} onClick={() => { setActiveId(preset.id); setResult(null); }}>
+                  <span className="preset-icon"><PresetGlyph id={preset.id} /></span><span className="preset-copy"><b>{preset.name}</b><small>{preset.id === "recovery" ? "心と体をゆるめる" : preset.journey ? "冒険モード" : `${preset.items.filter((entry) => entry.enabled).length}の候補`}</small></span><span className="preset-arrow" aria-hidden="true">›</span>
                 </button>
               ))}
-              {data.presets.length > 4 && <button className="more-presets" onClick={() => setView("presets")}>自作プリセットを見る <span>→</span></button>}
             </div>
 
             <section className={`wheel-stage ${activePreset.tone}`}>
@@ -598,7 +677,7 @@ export default function Home() {
                 </section>
                 {currentJourneyStep && !journeySpinning && <div className="mission-outcome"><span>NEXT MISSION</span><h2>{currentJourneyStep.mission}</h2><p>{currentJourneyStep.direction} · {currentJourneyStep.route ?? "自由な道"} · {currentJourneyStep.theme ?? "直感にまかせる"}</p></div>}
                 <div className="journey-actions"><button className="primary-button" disabled={journeySpinning} onClick={() => drawJourneyStep("done")}>できた！ 次を回す <span>↗</span></button><button disabled={journeySpinning} onClick={() => drawJourneyStep("skipped")}>スキップして次を回す</button><button disabled={journeySpinning} onClick={() => drawJourneyStep("skipped", true)}>ミッションだけ回し直す</button></div>
-                <button className="text-button danger-text" onClick={finishJourney}>旅を終える</button>
+                <button className="text-button danger-text" disabled={journeySpinning} onClick={finishJourney}>旅を終える</button>
                 <p className="safety-note">必ず停車して操作してください。危険・通行禁止の指示は迷わず引き直しましょう。</p>
               </>
             )}
