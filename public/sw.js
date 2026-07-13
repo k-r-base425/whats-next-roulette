@@ -1,4 +1,4 @@
-const CACHE = "whats-next-v4";
+const CACHE = "whats-next-v6";
 const BASE = new URL("./", self.location.href).pathname;
 const CORE = [`${BASE}manifest.webmanifest`, `${BASE}icon-192.png`, `${BASE}icon-512.png`];
 
@@ -21,7 +21,7 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)))).then(() => self.clients.claim()));
+  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith("whats-next-") && key !== CACHE).map((key) => caches.delete(key)))).then(() => self.clients.claim()));
 });
 
 self.addEventListener("fetch", (event) => {

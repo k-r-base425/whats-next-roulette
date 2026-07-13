@@ -7,7 +7,7 @@ type Preset = {
   id: string;
   name: string;
   icon: string;
-  tone: "coral" | "lemon" | "violet" | "mint" | "sky";
+  tone: "coral" | "lemon" | "violet" | "mint" | "sky" | "lime";
   description: string;
   custom?: boolean;
   journey?: boolean;
@@ -70,6 +70,30 @@ const makeRecoveryPreset = (): Preset => ({
     item("15分 短い仮眠をとる", 15), item("15分 静かな場所で休む", 15), item("15分 好きな音楽で気分を整える", 15),
   ],
 });
+const makeWorkoutPreset = (): Preset => ({
+  id: "workout",
+  name: "筋トレ",
+  icon: "⇆",
+  tone: "violet",
+  description: "3分だけ、気持ちよく体を動かす",
+  items: [
+    item("3分 スクワット", 3), item("3分 腕立て伏せ", 3), item("3分 腹筋", 3),
+    item("3分 プランク", 3), item("3分 ランジ", 3), item("3分 背筋", 3),
+  ],
+});
+const makeFreePreset = (): Preset => ({
+  id: "free",
+  name: "フリーモード",
+  icon: "✎",
+  tone: "lime",
+  description: "6つの枠を自由に決める",
+  items: [
+    item("散歩する"), item("本を読む"), item("コーヒーを飲む"),
+    { ...item("＋ 自由に入力"), enabled: false },
+    { ...item("＋ 自由に入力"), enabled: false },
+    { ...item("＋ 自由に入力"), enabled: false },
+  ],
+});
 
 const makeDefaults = (): AppData => ({
   version: 1,
@@ -126,6 +150,8 @@ const makeDefaults = (): AppData => ({
       items: [],
     },
     makeRecoveryPreset(),
+    makeWorkoutPreset(),
+    makeFreePreset(),
   ],
   decisions: [],
   journeys: [],
@@ -133,21 +159,32 @@ const makeDefaults = (): AppData => ({
   speech: true,
 });
 
-const ensureRecoveryPreset = (data: AppData): AppData => {
+const ensureDefaultPresets = (data: AppData): AppData => {
   const presets = [...data.presets];
   if (!presets.some((preset) => preset.id === "recovery")) {
     const bicycleIndex = presets.findIndex((preset) => preset.id === "bicycle");
     presets.splice(bicycleIndex >= 0 ? bicycleIndex + 1 : presets.length, 0, makeRecoveryPreset());
   }
+  if (!presets.some((preset) => preset.id === "workout")) presets.push(makeWorkoutPreset());
+  if (!presets.some((preset) => preset.id === "free")) presets.push(makeFreePreset());
   return {
     ...data,
-    presets: presets.map((preset) => (preset.id === "work" || preset.id === "recovery") ? {
-      ...preset,
-      items: preset.items.map((entry) => {
-        const minutes = Number(entry.label.match(/^(1|3|5|10|15)分/)?.[1] ?? 0);
-        return { ...entry, minutes: minutes || entry.minutes };
-      }),
-    } : preset),
+    presets: presets.map((preset) => {
+      if (preset.id === "free") {
+        const items = preset.items.slice(0, 6);
+        while (items.length < 6) items.push({ ...item("＋ 自由に入力"), enabled: false });
+        return { ...preset, items };
+      }
+      if (["work", "recovery", "workout"].includes(preset.id)) return {
+        ...preset,
+        items: preset.items.map((entry) => {
+          const minutes = preset.id === "workout" ? 3 : Number(entry.label.match(/^(1|3|5|10|15)分/)?.[1] ?? 0);
+          const label = preset.id === "workout" ? `3分 ${entry.label.replace(/^(1|3|5|10|15)分\s*/u, "")}` : entry.label;
+          return { ...entry, label, minutes: minutes || entry.minutes };
+        }),
+      };
+      return preset;
+    }),
   };
 };
 
@@ -159,8 +196,8 @@ const routeStyles = ["緑の多い道", "静かな細道", "見晴らしのよ�
 const journeyThemes = ["景色を探す", "色を探す", "店を探す", "季節を探す", "面白い名前を探す", "建物を眺める", "直感にまかせる"];
 const missions = ["橋があったら渡ってみよう", "緑の多い道を探そう", "青いものを3つ見つけよう", "気になる建物を1つ見つけよう", "知らない公園を探そう", "風が気持ちいい道を選ぼう", "名前が面白い場所を探そう", "お気に入りになりそうな景色を探そう", "安全に停車して旅の写真を1枚撮ろう", "通ったことのない道を1本選ぼう", "坂道を避けるか挑むか直感で決めよう", "パン屋・本屋・喫茶店のどれかを探そう", "季節を感じるものを1つ見つけよう"];
 const cardinals = ["北へ出発", "東へ出発", "南へ出発", "西へ出発"];
-const journeyWheelLabels = ["北へ", "東へ", "冒険", "南へ", "西へ", "直進"];
-const journeyDirectionSegments: Record<string, number> = { "北へ出発": 0, "東へ出発": 1, "南へ出発": 3, "西へ出発": 4 };
+const journeyWheelLabels = ["北へ", "東へ", "南へ", "冒険", "西へ", "直進"];
+const journeyDirectionSegments: Record<string, number> = { "北へ出発": 0, "東へ出発": 1, "南へ出発": 2, "西へ出発": 4 };
 const randomFrom = <T,>(list: T[]): T => list[Math.floor(Math.random() * list.length)];
 const startOfLocalDay = (time: number) => { const date = new Date(time); return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime(); };
 const historyGroup = (time: number, now = Date.now()) => {
@@ -187,7 +224,7 @@ const makeWheelItems = (items: Candidate[]): Candidate[] => {
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object";
 const isShortText = (value: unknown, max = 200): value is string => typeof value === "string" && value.length > 0 && value.length <= max;
 const isCandidate = (value: unknown): value is Candidate => isRecord(value) && isShortText(value.id, 100) && isShortText(value.label) && typeof value.enabled === "boolean" && (value.minutes === undefined || (typeof value.minutes === "number" && [1, 3, 5, 10, 15].includes(value.minutes)));
-const isPreset = (value: unknown): value is Preset => isRecord(value) && isShortText(value.id, 100) && isShortText(value.name, 50) && isShortText(value.icon, 8) && ["coral", "lemon", "violet", "mint", "sky"].includes(String(value.tone)) && isShortText(value.description) && Array.isArray(value.items) && value.items.length <= 500 && value.items.every(isCandidate);
+const isPreset = (value: unknown): value is Preset => isRecord(value) && isShortText(value.id, 100) && isShortText(value.name, 50) && isShortText(value.icon, 8) && ["coral", "lemon", "violet", "mint", "sky", "lime"].includes(String(value.tone)) && isShortText(value.description) && Array.isArray(value.items) && value.items.length <= 500 && value.items.every(isCandidate);
 const isStep = (value: unknown): value is JourneyStep => isRecord(value) && isShortText(value.id, 100) && isShortText(value.direction) && (value.route === undefined || isShortText(value.route)) && (value.theme === undefined || isShortText(value.theme)) && isShortText(value.mission) && ["active", "done", "skipped"].includes(String(value.status)) && typeof value.at === "number";
 const isDecision = (value: unknown): value is Decision => isRecord(value) && isShortText(value.id, 100) && isShortText(value.preset, 50) && isShortText(value.label) && typeof value.at === "number";
 const isJourneyLog = (value: unknown): value is JourneyLog => isRecord(value) && isShortText(value.id, 100) && typeof value.startedAt === "number" && typeof value.endedAt === "number" && isShortText(value.initialDirection, 50) && Array.isArray(value.steps) && value.steps.length <= 1000 && value.steps.every(isStep);
@@ -195,9 +232,11 @@ const isActiveJourney = (value: unknown): value is Journey => isRecord(value) &&
 
 function safeData(value: unknown): value is AppData {
   if (!isRecord(value) || value.version !== 1 || typeof value.speech !== "boolean") return false;
-  const legacyRecoveryAllowance = Array.isArray(value.presets) && value.presets.length === MAX_PRESETS + 1 && value.presets.some((preset) => isRecord(preset) && preset.id === "recovery");
-  if (!Array.isArray(value.presets) || value.presets.length < 1 || (value.presets.length > MAX_PRESETS && !legacyRecoveryAllowance) || !value.presets.every(isPreset)) return false;
-  if (!value.presets.some((preset) => !preset.journey)) return false;
+  const presets = value.presets;
+  if (!Array.isArray(presets)) return false;
+  const migratedSystemAllowance = presets.length <= MAX_PRESETS + 3 && ["recovery", "workout", "free"].every((id) => presets.some((preset) => isRecord(preset) && preset.id === id));
+  if (presets.length < 1 || (presets.length > MAX_PRESETS && !migratedSystemAllowance) || !presets.every(isPreset)) return false;
+  if (!presets.some((preset) => !preset.journey)) return false;
   if (!Array.isArray(value.decisions) || value.decisions.length > 1000 || !value.decisions.every(isDecision)) return false;
   if (!Array.isArray(value.journeys) || value.journeys.length > 100 || !value.journeys.every(isJourneyLog)) return false;
   return value.activeJourney === null || isActiveJourney(value.activeJourney);
@@ -210,7 +249,51 @@ function PresetGlyph({ id }: { id: string }) {
   if (id === "solo") return <svg viewBox="0 0 32 32" aria-hidden="true"><path {...common} d="M5 7c5-1 8 0 11 3v16c-3-3-6-4-11-3V7Zm22 0c-5-1-8 0-11 3v16c3-3 6-4 11-3V7Z" /></svg>;
   if (id === "bicycle") return <svg viewBox="0 0 32 32" aria-hidden="true"><circle {...common} cx="8" cy="22" r="5" /><circle {...common} cx="24" cy="22" r="5" /><path {...common} d="m8 22 5-9 5 9H8Zm10 0 4-11h4M12 10h5M13 13h8" /></svg>;
   if (id === "recovery") return <svg viewBox="0 0 32 32" aria-hidden="true"><path {...common} d="M4 10c4-4 7 4 11 0s7 4 13 0M4 16c4-4 7 4 11 0s7 4 13 0M4 22c4-4 7 4 11 0s7 4 13 0" /></svg>;
+  if (id === "workout") return <svg viewBox="0 0 32 32" aria-hidden="true"><path {...common} d="M3 13v6m4-9v12m18-9v6m-4-9v12M7 16h18M11 13v6m10-6v6" /></svg>;
+  if (id === "free") return <svg viewBox="0 0 32 32" aria-hidden="true"><path {...common} d="m7 23-1 4 4-1L25 11l-4-4L7 23Zm11-13 4 4M5 28h12" /></svg>;
   return <svg viewBox="0 0 32 32" aria-hidden="true"><path {...common} d="M16 4v24M4 16h24M8 8l16 16M24 8 8 24" /></svg>;
+}
+
+function WheelGlyph({ presetId, index, label = "", empty = false }: { presetId: string; index: number; label?: string; empty?: boolean }) {
+  const common = { fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  if (empty) return <span className="wheel-empty-glyph" aria-hidden="true">＋</span>;
+  const workoutGlyphIndex: Record<string, number> = { "スクワット": 0, "腕立て伏せ": 1, "腹筋": 2, "プランク": 3, "ランジ": 4, "背筋": 5 };
+  const resolvedIndex = presetId === "workout" ? (workoutGlyphIndex[label.replace(/^3分\s*/u, "")] ?? index) : index;
+  const key = presetId === "bicycle" ? `journey-${index}` : `${presetId}-${resolvedIndex}`;
+  const glyphs: Record<string, React.ReactNode> = {
+    "journey-0": <svg viewBox="0 0 32 32"><path {...common} d="m3 26 9-16 6 10 4-7 7 13H3Z" /></svg>,
+    "journey-1": <svg viewBox="0 0 32 32"><circle {...common} cx="16" cy="16" r="6"/><path {...common} d="M16 3v5m0 16v5M3 16h5m16 0h5M7 7l4 4m10 10 4 4m0-18-4 4M11 21l-4 4"/></svg>,
+    "journey-2": <svg viewBox="0 0 32 32"><path {...common} d="M16 28V13m0 1c-4-5-8-5-11-1 5 0 8 2 11 6m0-5c4-5 8-5 11-1-5 0-8 2-11 6M9 28h14"/></svg>,
+    "journey-3": <svg viewBox="0 0 32 32"><path {...common} d="m16 4 3.5 7.3 8 .9-5.9 5.4 1.6 7.9-7.2-4-7.2 4 1.6-7.9-5.9-5.4 8-.9L16 4Z"/></svg>,
+    "journey-4": <svg viewBox="0 0 32 32"><path {...common} d="M3 12c5-5 8 5 13 0s8 5 13 0M3 20c5-5 8 5 13 0s8 5 13 0"/></svg>,
+    "journey-5": <svg viewBox="0 0 32 32"><path {...common} d="M16 28V5m0 0-7 7m7-7 7 7"/></svg>,
+    "workout-0": <svg viewBox="0 0 32 32"><circle {...common} cx="18" cy="5" r="2.5"/><path {...common} d="m17 9-4 6 5 3m-8-3-4 6h8l-2 7m7-10 5 9"/></svg>,
+    "workout-1": <svg viewBox="0 0 32 32"><circle {...common} cx="26" cy="10" r="2.5"/><path {...common} d="M4 21h22M9 20l5-8 8 3 4 6M7 24h20"/></svg>,
+    "workout-2": <svg viewBox="0 0 32 32"><circle {...common} cx="22" cy="7" r="2.5"/><path {...common} d="M5 24h22M9 22c0-8 4-12 10-12l3 8 5 3M6 19l5 2"/></svg>,
+    "workout-3": <svg viewBox="0 0 32 32"><circle {...common} cx="26" cy="14" r="2.5"/><path {...common} d="M4 19h21M8 18l5-7 8 3 4 5M7 23h20"/></svg>,
+    "workout-4": <svg viewBox="0 0 32 32"><circle {...common} cx="17" cy="5" r="2.5"/><path {...common} d="m16 9-3 7 5 3m-7-3-6 4 8 2-2 6m7-9 7 8"/></svg>,
+    "workout-5": <svg viewBox="0 0 32 32"><circle {...common} cx="19" cy="8" r="2.5"/><path {...common} d="M5 24h23M9 22l5-9 7 4 5 5M6 18l6 2"/></svg>,
+    "free-0": <svg viewBox="0 0 32 32"><circle {...common} cx="16" cy="6" r="3"/><path {...common} d="m15 10-4 8 6 3m-8-6-5 5m13 1-4 8m5-14 6 5 4-1"/></svg>,
+    "free-1": <svg viewBox="0 0 32 32"><path {...common} d="M4 7c5-1 8 0 12 4v16c-4-4-7-5-12-4V7Zm24 0c-5-1-8 0-12 4v16c4-4 7-5 12-4V7Z"/></svg>,
+    "free-2": <svg viewBox="0 0 32 32"><path {...common} d="M6 12h18v7c0 5-3 8-9 8s-9-3-9-8v-7Zm18 2h2a4 4 0 0 1 0 8h-3M11 4c-3 3 2 4-1 7m7-7c-3 3 2 4-1 7"/></svg>,
+  };
+  if (glyphs[key]) return <span className="wheel-glyph" aria-hidden="true">{glyphs[key]}</span>;
+  const generic = [
+    <path {...common} key="a" d="M6 8h20v17H6zM10 13h12m-12 5h8" />,
+    <path {...common} key="b" d="M16 4v24M4 16h24M8 8l16 16M24 8 8 24" />,
+    <path {...common} key="c" d="M5 22c5-8 8 5 13-3s7 2 9-8M6 27h20" />,
+    <path {...common} key="d" d="M16 4c5 5 8 8 8 14a8 8 0 0 1-16 0c0-6 3-9 8-14Z" />,
+    <path {...common} key="e" d="M5 8h22v18H5zM9 12h14M9 17h10M9 22h7" />,
+    <path {...common} key="f" d="m16 4 3.5 7.3 8 .9-5.9 5.4 1.6 7.9-7.2-4-7.2 4 1.6-7.9-5.9-5.4 8-.9L16 4Z" />,
+  ];
+  return <span className="wheel-glyph" aria-hidden="true"><svg viewBox="0 0 32 32">{generic[index % generic.length]}</svg></span>;
+}
+
+function ActionGlyph({ kind }: { kind: "spin" | "map" | "edit" }) {
+  const common = { fill: "none", stroke: "currentColor", strokeWidth: 2.2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  if (kind === "map") return <svg viewBox="0 0 32 32" aria-hidden="true"><path {...common} d="m4 8 8-4 8 4 8-4v20l-8 4-8-4-8 4V8Zm8-4v20m8-16v20"/></svg>;
+  if (kind === "edit") return <svg viewBox="0 0 32 32" aria-hidden="true"><path {...common} d="m6 23-1 5 5-1L26 11l-5-5L6 23Zm12-14 5 5M5 29h17"/></svg>;
+  return <svg viewBox="0 0 32 32" aria-hidden="true"><path {...common} d="M25 9a11 11 0 1 0 2 10M25 4v7h-7"/></svg>;
 }
 
 export default function Home() {
@@ -241,12 +324,13 @@ export default function Home() {
   const audioContext = useRef<AudioContext | null>(null);
   const reelInterval = useRef<number | null>(null);
   const reelTimeout = useRef<number | null>(null);
+  const spinTimeout = useRef<number | null>(null);
 
   const activePreset = data.presets.find((preset) => preset.id === activeId) ?? data.presets[0];
   const managedPreset = data.presets.find((preset) => preset.id === manageId) ?? data.presets[0];
-  const homePresets = ["work", "play", "solo", "bicycle", "recovery"].map((id) => data.presets.find((preset) => preset.id === id)).filter((preset): preset is Preset => Boolean(preset));
+  const homePresets = ["work", "play", "solo", "recovery", "bicycle", "workout", "free"].map((id) => data.presets.find((preset) => preset.id === id)).filter((preset): preset is Preset => Boolean(preset));
   const enabledItems = useMemo(() => activePreset?.items.filter((entry) => entry.enabled) ?? [], [activePreset]);
-  const previewWheelItems = useMemo(() => enabledItems.length ? Array.from({ length: 6 }, (_, index) => enabledItems[Math.floor(index * enabledItems.length / 6)]) : [], [enabledItems]);
+  const previewWheelItems = useMemo(() => activePreset?.id === "free" ? activePreset.items.slice(0, 6) : enabledItems.length ? Array.from({ length: 6 }, (_, index) => enabledItems[Math.floor(index * enabledItems.length / 6)]) : [], [activePreset, enabledItems]);
   const visibleWheelItems = wheelSet?.presetId === activePreset?.id ? wheelSet.items : previewWheelItems;
   const editablePresets = data.presets.filter((preset) => !preset.journey);
   const customPresets = editablePresets.filter((preset) => preset.custom);
@@ -275,10 +359,15 @@ export default function Home() {
   const wheelLabels = useMemo(() => {
     if (activePreset?.journey) return journeyWheelLabels;
     return visibleWheelItems.map((entry) => {
-      const shortLabel = entry.label;
+      const shortLabel = activePreset?.id === "workout" ? entry.label.replace(/^3分\s*/u, "") : entry.label;
       return shortLabel.length > 9 ? `${shortLabel.slice(0, 8)}…` : shortLabel;
     });
   }, [activePreset, visibleWheelItems]);
+  const centerResult = result?.label.replace(/^\d+分\s*/u, "");
+  const workoutDetails: Record<string, string> = {
+    "3分 スクワット": "下半身を鍛える", "3分 腕立て伏せ": "胸と腕を鍛える", "3分 腹筋": "お腹を鍛える",
+    "3分 プランク": "体幹を鍛える", "3分 ランジ": "脚とバランスを鍛える", "3分 背筋": "背中を鍛える",
+  };
   const speak = useCallback((text: string) => {
     if (!data.speech || !("speechSynthesis" in window)) return;
     window.speechSynthesis.cancel();
@@ -296,7 +385,7 @@ export default function Home() {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed: unknown = JSON.parse(saved);
-        if (safeData(parsed)) savedData = ensureRecoveryPreset(parsed);
+        if (safeData(parsed)) savedData = ensureDefaultPresets(parsed);
       }
     } catch {
       loadFailed = true;
@@ -307,7 +396,12 @@ export default function Home() {
       setHydrated(true);
     });
     const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register(`${basePath}/sw.js`).catch(() => undefined);
+    if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.register(`${basePath}/sw.js`).catch(() => undefined);
+    } else if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistrations().then((registrations) => Promise.all(registrations.map((registration) => registration.unregister()))).catch(() => undefined);
+      if ("caches" in window) caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith("whats-next-")).map((key) => caches.delete(key)))).catch(() => undefined);
+    }
     const captureInstall = (event: Event) => {
       event.preventDefault();
       setInstallPrompt(event as InstallPromptEvent);
@@ -328,7 +422,15 @@ export default function Home() {
   useEffect(() => () => {
     if (reelInterval.current) window.clearInterval(reelInterval.current);
     if (reelTimeout.current) window.clearTimeout(reelTimeout.current);
+    if (spinTimeout.current) window.clearTimeout(spinTimeout.current);
   }, []);
+
+  useEffect(() => {
+    if (!spinTimeout.current) return;
+    window.clearTimeout(spinTimeout.current);
+    spinTimeout.current = null;
+    queueMicrotask(() => setSpinning(false));
+  }, [activeId, view]);
 
   useEffect(() => {
     const now = new Date();
@@ -388,7 +490,7 @@ export default function Home() {
     if (!activePreset) return;
     const rotateToSegment = (segment: number) => setRotation((current) => {
       const currentAngle = ((current % 360) + 360) % 360;
-      const targetAngle = (360 - segment * 60) % 360;
+      const targetAngle = (390 - segment * 60) % 360;
       const alignment = (targetAngle - currentAngle + 360) % 360;
       return current + 720 + alignment;
     });
@@ -398,10 +500,32 @@ export default function Home() {
       const chosen = randomFrom(cardinals);
       const segment = journeyDirectionSegments[chosen];
       rotateToSegment(segment);
-      window.setTimeout(() => {
+      spinTimeout.current = window.setTimeout(() => {
         setResult({ label: chosen });
         setSpinning(false);
+        spinTimeout.current = null;
         speak(chosen);
+      }, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 80 : 850);
+      return;
+    }
+    if (activePreset.id === "free") {
+      const freeItems = activePreset.items.slice(0, 6);
+      const enabledSegments = freeItems.map((entry, index) => entry.enabled ? index : -1).filter((index) => index >= 0);
+      if (!enabledSegments.length) {
+        setNotice("まずは6つの枠から、1つ以上の内容を入力してオンにしよう。");
+        return;
+      }
+      const segment = randomFrom(enabledSegments);
+      const chosen = freeItems[segment];
+      setSpinning(true);
+      setResult(null);
+      setWheelSet({ presetId: activePreset.id, items: freeItems });
+      rotateToSegment(segment);
+      spinTimeout.current = window.setTimeout(() => {
+        setResult({ label: chosen.label });
+        setSpinning(false);
+        spinTimeout.current = null;
+        speak(chosen.label);
       }, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 80 : 850);
       return;
     }
@@ -417,9 +541,10 @@ export default function Home() {
     setWheelSet({ presetId: activePreset.id, items: nextWheelItems });
     rotateToSegment(segment);
     const workMinutes = activePreset.id === "work" ? Number(chosen.label.match(/^(1|3|5|10|15)分/)?.[1] ?? 0) : chosen.minutes;
-    window.setTimeout(() => {
+    spinTimeout.current = window.setTimeout(() => {
       setResult({ label: chosen.label, minutes: workMinutes || undefined });
       setSpinning(false);
+      spinTimeout.current = null;
       speak(chosen.label);
     }, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 80 : 850);
   }
@@ -444,18 +569,18 @@ export default function Home() {
 
   async function startTimer() {
     if (!result?.minutes) return;
+    const duration = result.minutes * 60;
+    setRemaining(duration);
+    setTimer({ label: result.label, duration, endAt: Date.now() + duration * 1000 });
+    setView("timer");
     try {
       audioContext.current ??= new AudioContext();
-      await audioContext.current.resume();
+      void audioContext.current.resume().catch(() => undefined);
     } catch { /* timer still works visually */ }
     const navigatorWithWakeLock = navigator as NavigatorWithWakeLock;
     if (navigatorWithWakeLock.wakeLock) {
       try { wakeLock.current = await navigatorWithWakeLock.wakeLock.request("screen"); } catch { setNotice("画面が消える場合があります。タイマー中は画面を開いたままにしてください。"); }
     }
-    const duration = result.minutes * 60;
-    setRemaining(duration);
-    setTimer({ label: result.label, duration, endAt: Date.now() + duration * 1000 });
-    setView("timer");
   }
 
   function makeJourneyStep(previous?: JourneyStep, missionOnly = false): JourneyStep {
@@ -528,19 +653,25 @@ export default function Home() {
 
   function updatePreset(id: string, updater: (preset: Preset) => Preset) {
     setData((current) => ({ ...current, presets: current.presets.map((preset) => preset.id === id ? updater(preset) : preset) }));
+    setWheelSet((current) => current?.presetId === id ? null : current);
+    if (activeId === id) setResult(null);
   }
 
   function addCandidate() {
     const label = newItem.trim();
     if (!label || !managedPreset || managedPreset.journey) return;
+    if (managedPreset.id === "free") {
+      setNotice("フリーモードは6つの固定枠を鉛筆ボタンから編集できます。");
+      return;
+    }
     if (managedPreset.items.length >= MAX_CANDIDATES) {
       setNotice(`候補は1つのプリセットにつき${MAX_CANDIDATES}件までです。`);
       return;
     }
-    const timedPreset = managedPreset.id === "work" || managedPreset.id === "recovery";
-    const minutes = timedPreset ? Number(label.match(/^(1|3|5|10|15)分/)?.[1] ?? 0) : undefined;
+    const timedPreset = ["work", "recovery", "workout"].includes(managedPreset.id);
+    const minutes = managedPreset.id === "workout" ? Number(label.match(/^3分/) ? 3 : 0) : timedPreset ? Number(label.match(/^(1|3|5|10|15)分/)?.[1] ?? 0) : undefined;
     if (timedPreset && !minutes) {
-      setNotice(`${managedPreset.name}の候補は「1分・3分・5分・10分・15分」のどれかから始めてください。`);
+      setNotice(managedPreset.id === "workout" ? "筋トレの候補は「3分」から始めてください。" : `${managedPreset.name}の候補は「1分・3分・5分・10分・15分」のどれかから始めてください。`);
       return;
     }
     updatePreset(managedPreset.id, (preset) => ({ ...preset, items: [...preset.items, item(label, minutes)] }));
@@ -549,21 +680,24 @@ export default function Home() {
 
   function editCandidate(candidate: Candidate) {
     if (!managedPreset) return;
-    setCandidateEditor({ presetId: managedPreset.id, candidateId: candidate.id, draft: candidate.label });
+    setCandidateEditor({ presetId: managedPreset.id, candidateId: candidate.id, draft: managedPreset.id === "free" && candidate.label === "＋ 自由に入力" ? "" : candidate.label });
   }
 
   function saveCandidateEdit() {
     if (!candidateEditor) return;
     const preset = data.presets.find((entry) => entry.id === candidateEditor.presetId);
     const next = candidateEditor.draft.trim();
-    if (!preset || !next) return;
-    const timedPreset = preset.id === "work" || preset.id === "recovery";
-    const minutes = timedPreset ? Number(next.match(/^(1|3|5|10|15)分/)?.[1] ?? 0) : preset.items.find((entry) => entry.id === candidateEditor.candidateId)?.minutes;
-    if (timedPreset && !minutes) {
-      setNotice(`${preset.name}の候補は「1分・3分・5分・10分・15分」のどれかから始めてください。`);
+    if (!preset || !next) {
+      setNotice("候補の内容を入力してください。");
       return;
     }
-    updatePreset(preset.id, (current) => ({ ...current, items: current.items.map((entry) => entry.id === candidateEditor.candidateId ? { ...entry, label: next, minutes: minutes || undefined } : entry) }));
+    const timedPreset = ["work", "recovery", "workout"].includes(preset.id);
+    const minutes = preset.id === "workout" ? Number(next.match(/^3分/) ? 3 : 0) : timedPreset ? Number(next.match(/^(1|3|5|10|15)分/)?.[1] ?? 0) : preset.items.find((entry) => entry.id === candidateEditor.candidateId)?.minutes;
+    if (timedPreset && !minutes) {
+      setNotice(preset.id === "workout" ? "筋トレの候補は「3分」から始めてください。" : `${preset.name}の候補は「1分・3分・5分・10分・15分」のどれかから始めてください。`);
+      return;
+    }
+    updatePreset(preset.id, (current) => ({ ...current, items: current.items.map((entry) => entry.id === candidateEditor.candidateId ? { ...entry, label: next, minutes: minutes || undefined, enabled: preset.id === "free" ? true : entry.enabled } : entry) }));
     setCandidateEditor(null);
     setNotice("候補を更新しました。");
   }
@@ -572,7 +706,14 @@ export default function Home() {
     if (!candidateEditor) return;
     const preset = data.presets.find((entry) => entry.id === candidateEditor.presetId);
     const candidate = preset?.items.find((entry) => entry.id === candidateEditor.candidateId);
-    if (!preset || !candidate || !window.confirm(`「${candidate.label}」を削除しますか？`)) return;
+    if (!preset || !candidate) return;
+    if (preset.id === "free") {
+      updatePreset(preset.id, (current) => ({ ...current, items: current.items.map((entry) => entry.id === candidate.id ? { ...entry, label: "＋ 自由に入力", enabled: false, minutes: undefined } : entry) }));
+      setCandidateEditor(null);
+      setNotice("フリー枠を空に戻しました。");
+      return;
+    }
+    if (!window.confirm(`「${candidate.label}」を削除しますか？`)) return;
     updatePreset(preset.id, (current) => ({ ...current, items: current.items.filter((entry) => entry.id !== candidate.id) }));
     setCandidateEditor(null);
     setNotice("候補を削除しました。");
@@ -655,7 +796,7 @@ export default function Home() {
       const parsed: unknown = JSON.parse(await file.text());
       if (!safeData(parsed)) throw new Error("invalid");
       if (window.confirm("現在のデータを、このバックアップで置き換えますか？")) {
-        const migrated = ensureRecoveryPreset(parsed);
+        const migrated = ensureDefaultPresets(parsed);
         setData(migrated);
         setActiveId(migrated.presets[0]?.id ?? "work");
         setManageId(migrated.presets.find((preset) => !preset.journey)?.id ?? "work");
@@ -723,7 +864,7 @@ export default function Home() {
           <button className="brand" onClick={goHome} aria-label="ホームへ戻る">
             <span className="brand-mark">↗</span><span>What’s Next?</span>
           </button>
-          <button className="icon-button" onClick={openSettings} aria-label="設定を開く">•••</button>
+          <button className="icon-button" onClick={openSettings} aria-label="設定を開く">⚙</button>
         </header>
 
         {notice && <button className="notice" onClick={() => setNotice("")} aria-live="polite">{notice}<span>×</span></button>}
@@ -738,28 +879,42 @@ export default function Home() {
                 <path d="M29 35c5 5 11 5 16 0M62 43l13 8-2-15" />
                 <text x="67" y="21">?</text>
               </svg>
-              <div><h1 id="mode-question-title">いま、どんな時間にする？</h1><p><span>●</span> 5つのモードから選ぶ <span>●</span></p></div>
+              <div><h1 id="mode-question-title">いま、どんな時間にする？</h1><p><span>●</span> 7つのモードから選ぶ <span>●</span></p></div>
             </section>
             <div className="preset-grid" aria-label="プリセットを選ぶ">
               {homePresets.map((preset) => (
-                <button key={preset.id} className={`preset-card ${preset.tone} ${preset.id === "recovery" ? "recovery-card" : ""} ${activeId === preset.id ? "selected" : ""}`} aria-pressed={activeId === preset.id} disabled={spinning} onClick={() => { setActiveId(preset.id); setResult(null); }}>
-                  <span className="preset-icon"><PresetGlyph id={preset.id} /></span><span className="preset-copy"><b>{preset.name}</b><small>{preset.id === "recovery" ? "心と体をゆるめる" : preset.journey ? "冒険モード" : `${preset.items.filter((entry) => entry.enabled).length}の候補`}</small></span><span className="preset-arrow" aria-hidden="true">›</span>
+                <button key={preset.id} className={`preset-card ${preset.tone} ${preset.id === "free" ? "free-card" : ""} ${activeId === preset.id ? "selected" : ""}`} aria-pressed={activeId === preset.id} disabled={spinning} onClick={() => { setActiveId(preset.id); setResult(null); }}>
+                  {activeId === preset.id && <span className="preset-check" aria-hidden="true">✓</span>}
+                  <span className="preset-icon"><PresetGlyph id={preset.id} /></span><span className="preset-copy"><b>{preset.name}</b>{preset.id === "free" && <small>6つの枠を自由に決める</small>}</span><span className="preset-arrow" aria-hidden="true">›</span>
                 </button>
               ))}
             </div>
 
             <section className={`wheel-stage ${activePreset.tone}`}>
               <div className="wheel-pointer">▼</div>
-              <button className={`wheel ${spinning ? "is-spinning" : ""}`} style={{ "--rotation": `${rotation}deg` } as React.CSSProperties} onClick={spin} disabled={spinning} aria-label={activePreset.journey ? "旅の出発方角を決める" : "ルーレットを回す"}>
-                {wheelLabels.map((label, index) => <span className={`wheel-label label-${index}`} key={`${label}-${index}`}>{label}</span>)}
-                <span className="wheel-center"><small>{activePreset.name}</small><b>{spinning ? "選んでいます…" : result?.label ?? (activePreset.journey ? "旅へ出よう" : "何をする？")}</b></span>
+              <button className={`wheel wheel-${activePreset.id} ${spinning ? "is-spinning" : ""}`} style={{ "--rotation": `${rotation}deg` } as React.CSSProperties} onClick={spin} disabled={spinning} aria-label={activePreset.journey ? "旅の出発方角を決める" : "ルーレットを回す"}>
+                {wheelLabels.map((label, index) => {
+                  const entry = visibleWheelItems[index];
+                  const empty = activePreset.id === "free" && !entry?.enabled;
+                  const minutes = activePreset.journey || empty ? undefined : (entry?.minutes ?? (Number(entry?.label.match(/^(1|3|5|10|15)分/u)?.[1] ?? 0) || undefined));
+                  return <span className={`wheel-label label-${index} ${empty ? "empty-wheel-label" : ""}`} key={`${label}-${index}`}><WheelGlyph presetId={activePreset.id} index={index} label={entry?.label ?? label} empty={empty} /><strong>{label}</strong>{minutes && <i>{minutes}分</i>}</span>;
+                })}
+                <span className="wheel-center"><small>{activePreset.id === "workout" ? "3分\nトレーニング" : activePreset.id === "free" ? "フリー" : activePreset.journey ? "" : activePreset.name}</small><b>{spinning ? "選んでいます…" : centerResult ?? (activePreset.journey ? "旅へ\n出よう" : activePreset.id === "workout" ? "何を鍛える？" : "何をする？")}</b></span>
               </button>
-              <p className="preset-description">{activePreset.description}</p>
+              <p className="preset-description">{activePreset.id === "free" ? "6つすべて、好きな内容に変更できます" : activePreset.description}</p>
             </section>
 
-            <button className="primary-button spin-button" onClick={activePreset.journey && result ? openJourney : spin} disabled={spinning}>{activePreset.journey ? (spinning ? "方角を選んでいます…" : result ? "旅モードを開く" : "旅のルーレットを回す") : spinning ? "選んでいます…" : "ルーレットを回す"}<span>↗</span></button>
+            <div className="home-action-stack">
+              <button className="primary-button spin-button" onClick={spin} disabled={spinning}><ActionGlyph kind="spin" />{activePreset.journey ? (spinning ? "方角を選んでいます…" : "旅のルーレットを回す") : activePreset.id === "workout" ? (spinning ? "選んでいます…" : "筋トレを決める") : activePreset.id === "free" ? (spinning ? "選んでいます…" : "フリールーレットを回す") : spinning ? "選んでいます…" : "ルーレットを回す"}</button>
+              {activePreset.journey && <button className="mode-secondary-action journey-open-button" disabled={spinning} onClick={openJourney}><ActionGlyph kind="map" />旅モードを開く</button>}
+              {activePreset.id === "free" && <button className="mode-secondary-action free-edit-button" disabled={spinning} onClick={() => { setManageId("free"); setCustomPickerOpen(false); setView("presets"); }}><ActionGlyph kind="edit" />6つの内容を編集</button>}
+            </div>
             {result && !spinning && (
-              <section className="result-card" aria-live="polite">
+              activePreset.id === "workout" ? <section className="workout-result-card" aria-live="polite">
+                <span className="workout-result-icon"><WheelGlyph presetId="workout" index={Math.max(0, visibleWheelItems.findIndex((entry) => entry.label === result.label))} label={result.label} /></span>
+                <span className="workout-result-copy"><b>{centerResult}・3分</b><small>{workoutDetails[result.label] ?? "全身を気持ちよく動かす"}</small></span>
+                <button onClick={() => { acceptResult(); void startTimer(); }}><span aria-hidden="true">▶</span>スタート</button>
+              </section> : <section className="result-card" aria-live="polite">
                 <div><span className="result-kicker">TODAY&apos;S PICK</span><h2>{result.label}</h2></div>
                 <div className="result-actions">
                   {activePreset.journey ? <button onClick={openJourney}>この方角で旅へ</button> : <button onClick={acceptResult}>これに決定</button>}<button onClick={spin}>もう一度</button>
@@ -829,7 +984,7 @@ export default function Home() {
           <div className="view manage-view">
             <p className="eyebrow">MAKE IT YOURS</p><h1>じぶん用に整える。</h1>
             <div className="preset-mode-tabs" role="tablist" aria-label="編集するプリセット">
-              {editablePresets.filter((preset) => !preset.custom && ["work", "play", "solo", "recovery"].includes(preset.id)).map((preset) => <button key={preset.id} role="tab" aria-selected={manageId === preset.id} className={manageId === preset.id ? "active" : ""} onClick={() => { setManageId(preset.id); setCustomPickerOpen(false); }}><PresetGlyph id={preset.id} /><span>{preset.id === "solo" ? "一人" : preset.name}</span></button>)}
+              {editablePresets.filter((preset) => !preset.custom && ["work", "play", "solo", "recovery", "workout", "free"].includes(preset.id)).map((preset) => <button key={preset.id} role="tab" aria-selected={manageId === preset.id} className={manageId === preset.id ? "active" : ""} onClick={() => { setManageId(preset.id); setCustomPickerOpen(false); }}><PresetGlyph id={preset.id} /><span>{preset.id === "solo" ? "一人" : preset.id === "free" ? "フリー" : preset.name}</span></button>)}
               <button role="tab" aria-selected={Boolean(managedPreset.custom)} className={managedPreset.custom ? "active custom-tab" : "custom-tab"} onClick={() => { setCustomPickerOpen(true); if (customPresets[0]) setManageId(customPresets[0].id); else setCreatingPreset(true); }}><PresetGlyph id="custom" /><span>自作</span></button>
             </div>
 
@@ -844,11 +999,11 @@ export default function Home() {
               <button onClick={() => { setActiveId(managedPreset.id); setResult(null); setView("home"); }}>このプリセットを使う <span>→</span></button>
             </section>
 
-            <section className="candidate-editor"><div className="preset-candidate-header"><h2>{managedPreset.name}の候補</h2><span>{managedPreset.items.filter((entry) => entry.enabled).length}/{managedPreset.items.length}</span></div>
-              <div className="candidate-add-row"><input value={newItem} onChange={(event) => setNewItem(event.target.value)} onKeyDown={(event) => event.key === "Enter" && addCandidate()} placeholder={managedPreset.id === "work" || managedPreset.id === "recovery" ? "例：5分 ストレッチする" : "新しい候補を入力"} maxLength={80} aria-label={`${managedPreset.name}へ追加する候補`} /><button onClick={addCandidate} disabled={managedPreset.items.length >= MAX_CANDIDATES}>追加</button></div>
+            <section className="candidate-editor"><div className="preset-candidate-header"><h2>{managedPreset.id === "free" ? "6つの内容" : `${managedPreset.name}の候補`}</h2><span>{managedPreset.items.filter((entry) => entry.enabled).length}/{managedPreset.items.length}</span></div>
+              {managedPreset.id === "free" ? <p className="free-editor-note">鉛筆ボタンから6つすべてを自由に変更できます。空に戻した枠は抽選されません。</p> : <div className="candidate-add-row"><input value={newItem} onChange={(event) => setNewItem(event.target.value)} onKeyDown={(event) => event.key === "Enter" && addCandidate()} placeholder={managedPreset.id === "workout" ? "例：3分 バーピー" : managedPreset.id === "work" || managedPreset.id === "recovery" ? "例：5分 ストレッチする" : "新しい候補を入力"} maxLength={80} aria-label={`${managedPreset.name}へ追加する候補`} /><button onClick={addCandidate} disabled={managedPreset.items.length >= MAX_CANDIDATES}>追加</button></div>}
               <div className="candidate-list">{managedPreset.items.map((entry) => {
                 const displayLabel = entry.minutes ? entry.label.replace(/^(1|3|5|10|15)分\s*/u, "") : entry.label;
-                return <article className={`candidate-row ${entry.enabled ? "" : "disabled"}`} key={entry.id}><label className="switch"><input type="checkbox" checked={entry.enabled} aria-label={`${entry.label}を${entry.enabled ? "抽選対象から外す" : "抽選対象にする"}`} onChange={(event) => updatePreset(managedPreset.id, (preset) => ({ ...preset, items: preset.items.map((candidate) => candidate.id === entry.id ? { ...candidate, enabled: event.target.checked } : candidate) }))} /><span /></label><div className="candidate-copy"><b>{displayLabel}</b>{entry.minutes && <span className="duration-pill">{entry.minutes}分</span>}</div><button className="candidate-edit-button" onClick={() => editCandidate(entry)} aria-label={`${entry.label}を編集`}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 16-1 4 4-1L19 8l-3-3L5 16Zm9-9 3 3" /></svg></button></article>;
+                return <article className={`candidate-row ${entry.enabled ? "" : "disabled"}`} key={entry.id}><label className="switch"><input type="checkbox" checked={entry.enabled} aria-label={`${entry.label}を${entry.enabled ? "抽選対象から外す" : "抽選対象にする"}`} onChange={(event) => { if (managedPreset.id === "free" && entry.label === "＋ 自由に入力" && event.target.checked) { editCandidate(entry); return; } updatePreset(managedPreset.id, (preset) => ({ ...preset, items: preset.items.map((candidate) => candidate.id === entry.id ? { ...candidate, enabled: event.target.checked } : candidate) })); }} /><span /></label><div className="candidate-copy"><b>{displayLabel}</b>{entry.minutes && <span className="duration-pill">{entry.minutes}分</span>}</div><button className="candidate-edit-button" onClick={() => editCandidate(entry)} aria-label={`${entry.label}を編集`}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 16-1 4 4-1L19 8l-3-3L5 16Zm9-9 3 3" /></svg></button></article>;
               })}</div>
               {!managedPreset.items.length && <div className="empty-state">候補がまだありません。<small>上の入力欄から追加してみましょう。</small></div>}
               {managedPreset.custom && <button className="text-button danger-text delete-preset-button" onClick={() => deleteCustomPreset(managedPreset)}>このプリセットを削除</button>}
@@ -868,9 +1023,9 @@ export default function Home() {
           </div>
         )}
 
-        {view !== "timer" && view !== "journey" && <nav className="bottom-nav" aria-label="メインメニュー"><button className={view === "home" ? "active" : ""} onClick={() => setView("home")}><span>◎</span>ルーレット</button><button className={view === "history" ? "active" : ""} onClick={() => setView("history")}><span>↶</span>履歴</button><button className={view === "presets" ? "active" : ""} onClick={() => setView("presets")}><span>＋</span>プリセット</button></nav>}
+        {view !== "timer" && view !== "journey" && <nav className="bottom-nav" aria-label="メインメニュー"><button className={view === "home" ? "active" : ""} onClick={() => setView("home")}><span className="nav-wheel" aria-hidden="true">✺</span>ルーレット</button><button className={view === "history" ? "active" : ""} onClick={() => setView("history")}><span className="nav-clock" aria-hidden="true">◷</span>履歴</button><button className={view === "presets" ? "active" : ""} onClick={() => setView("presets")}><span className="nav-star" aria-hidden="true">☆</span>プリセット</button></nav>}
         {(view === "timer" || view === "journey") && <button className="floating-back" onClick={goHome} aria-label="ホームへ戻る">←</button>}
-        {candidateEditor && editingCandidate && <div className="editor-backdrop" onKeyDown={(event) => { if (event.key === "Escape") setCandidateEditor(null); }} onMouseDown={(event) => { if (event.currentTarget === event.target) setCandidateEditor(null); }}><section className="candidate-dialog" role="dialog" aria-modal="true" aria-labelledby="candidate-dialog-title"><p className="eyebrow">EDIT CANDIDATE</p><h2 id="candidate-dialog-title">候補を編集</h2><label htmlFor="candidate-edit-input">候補の内容</label><input id="candidate-edit-input" value={candidateEditor.draft} onChange={(event) => setCandidateEditor({ ...candidateEditor, draft: event.target.value })} onKeyDown={(event) => event.key === "Enter" && !event.nativeEvent.isComposing && saveCandidateEdit()} maxLength={80} autoFocus /><div className="dialog-actions"><button className="dialog-save" onClick={saveCandidateEdit}>保存</button><button onClick={() => setCandidateEditor(null)}>キャンセル</button></div><button className="dialog-delete" onClick={deleteCandidateFromEditor}>この候補を削除</button></section></div>}
+        {candidateEditor && editingCandidate && <div className="editor-backdrop" onKeyDown={(event) => { if (event.key === "Escape") setCandidateEditor(null); }} onMouseDown={(event) => { if (event.currentTarget === event.target) setCandidateEditor(null); }}><section className="candidate-dialog" role="dialog" aria-modal="true" aria-labelledby="candidate-dialog-title"><p className="eyebrow">EDIT CANDIDATE</p><h2 id="candidate-dialog-title">候補を編集</h2><label htmlFor="candidate-edit-input">候補の内容</label><input id="candidate-edit-input" value={candidateEditor.draft} onChange={(event) => setCandidateEditor({ ...candidateEditor, draft: event.target.value })} onKeyDown={(event) => event.key === "Enter" && !event.nativeEvent.isComposing && saveCandidateEdit()} maxLength={80} autoFocus /><div className="dialog-actions"><button className="dialog-save" onClick={saveCandidateEdit}>保存</button><button onClick={() => setCandidateEditor(null)}>キャンセル</button></div><button className="dialog-delete" onClick={deleteCandidateFromEditor}>{candidateEditor.presetId === "free" ? "この枠を空に戻す" : "この候補を削除"}</button></section></div>}
       </section>
     </main>
   );

@@ -4,7 +4,7 @@ import "./globals.css";
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 const title = "What’s Next? — 今日、何をする？";
-const description = "仕事の休憩、遊び、暇つぶし、回復、自転車の旅をルーレットで決めるオフラインアプリ。";
+const description = "仕事、遊び、一人時間、回復、自転車の旅、筋トレ、自由な6枠をルーレットで決めるオフラインアプリ。";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
