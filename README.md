@@ -1,98 +1,53 @@
-# vinext-starter
+# What’s Next?
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+暇な時間の「次に何をする？」をルーレットで決める、スマートフォン向けのオフラインWebアプリです。
 
-## Prerequisites
+## できること
 
-- Node.js `>=22.13.0`
+- 仕事、遊び、一人時間、回復、筋トレ、フリーモードのルーレット
+- 自転車の出発方角と冒険ミッションを決める旅モード
+- 1・3・5・10・15分の休憩タイマー
+- 候補の追加、編集、削除、一時的なオン・オフ
+- オリジナルプリセットの作成
+- 決定履歴と自転車の旅履歴の保存
+- 端末内データのバックアップと復元
+- ホーム画面への追加とオフライン利用
+- 旅モードの日本語音声読み上げ
 
-## Quick Start
+ログイン、位置情報、外部AI、クラウド保存は使用しません。候補や履歴はブラウザの端末内ストレージだけに保存されます。
+
+## 使い方
+
+1. ホーム画面で使いたいモードを選びます。
+2. 「ルーレットを回す」を押します。
+3. 結果を採用する場合は「これに決定」を押します。
+4. 時間付きの結果では、そのままタイマーを開始できます。
+
+候補やプリセットは画面下部の「プリセット」から編集できます。バックアップ、復元、初期化、音声読み上げは設定画面にあります。
+
+自転車の旅モードは、必ず安全な場所へ停車してから操作してください。交通ルールと実際の道路状況を、抽選結果より優先してください。
+
+## オフライン利用
+
+公開ページを一度オンラインで開くと、必要な画面データが端末へ保存されます。その後は通信できない場所でも利用できます。スマートフォンの共有メニューから「ホーム画面に追加」を選ぶと、通常のアプリに近い形で起動できます。
+
+## 開発
+
+Node.js 22.13以降が必要です。
 
 ```bash
-npm install
+npm ci
 npm run dev
-npm run build
 ```
 
-This starter does not use `wrangler.jsonc`.
+主な確認コマンドは次のとおりです。
 
-## Included Shape
-
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+npm run lint
+npm run pages:build
+npm test
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+## 公開
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
-
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
-
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+`main` ブランチへの更新をきっかけに、GitHub Actionsが静的サイトを作成してGitHub Pagesへ公開します。公開設定は [deploy-pages.yml](.github/workflows/deploy-pages.yml) にあります。

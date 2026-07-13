@@ -51,7 +51,7 @@ type ReelDisplay = { direction: string; route: string; theme: string; mission: s
 type HistoryFeedItem = { kind: "decision"; id: string; at: number; decision: Decision } | { kind: "journey"; id: string; at: number; journey: JourneyLog };
 type CandidateEditor = { presetId: string; candidateId: string; draft: string } | null;
 type InstallPromptEvent = Event & { prompt: () => Promise<void> };
-type WakeLockHandle = { release: () => Promise<void> };
+type WakeLockHandle = { released: boolean; release: () => Promise<void> };
 type NavigatorWithWakeLock = Navigator & { wakeLock?: { request: (kind: "screen") => Promise<WakeLockHandle> } };
 
 const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -299,6 +299,7 @@ function ActionGlyph({ kind }: { kind: "spin" | "map" | "edit" }) {
 export default function Home() {
   const [data, setData] = useState<AppData>(() => makeDefaults());
   const [hydrated, setHydrated] = useState(false);
+  const [persistenceEnabled, setPersistenceEnabled] = useState(false);
   const [view, setView] = useState<View>("home");
   const [activeId, setActiveId] = useState("work");
   const [result, setResult] = useState<SpinResult>(null);
@@ -378,21 +379,40 @@ export default function Home() {
     window.speechSynthesis.speak(utterance);
   }, [data.speech]);
 
+  const requestTimerWakeLock = useCallback(async () => {
+    if (document.visibilityState !== "visible") return;
+    const navigatorWithWakeLock = navigator as NavigatorWithWakeLock;
+    if (!navigatorWithWakeLock.wakeLock || wakeLock.current?.released === false) return;
+    try {
+      wakeLock.current = await navigatorWithWakeLock.wakeLock.request("screen");
+    } catch {
+      setNotice("画面が消える場合があります。タイマー中は画面を開いたままにしてください。");
+    }
+  }, []);
+
   useEffect(() => {
     let savedData: AppData | null = null;
     let loadFailed = false;
+    let canPersist = true;
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed: unknown = JSON.parse(saved);
-        if (safeData(parsed)) savedData = ensureDefaultPresets(parsed);
+        if (safeData(parsed)) {
+          savedData = ensureDefaultPresets(parsed);
+        } else {
+          loadFailed = true;
+          canPersist = false;
+        }
       }
     } catch {
       loadFailed = true;
+      canPersist = false;
     }
     queueMicrotask(() => {
       if (savedData) setData(savedData);
-      if (loadFailed) setNotice("保存データを読み込めなかったため、初期状態で開きました。");
+      if (loadFailed) setNotice("保存データを読み込めませんでした。元のデータは上書きせず保護しています。バックアップを読み込むか、初期状態へ戻してください。");
+      setPersistenceEnabled(canPersist);
       setHydrated(true);
     });
     const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
@@ -411,13 +431,13 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || !persistenceEnabled) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch {
       queueMicrotask(() => setNotice("保存できませんでした。端末の空き容量を確認してください。"));
     }
-  }, [data, hydrated]);
+  }, [data, hydrated, persistenceEnabled]);
 
   useEffect(() => () => {
     if (reelInterval.current) window.clearInterval(reelInterval.current);
@@ -469,6 +489,15 @@ export default function Home() {
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
   }, [timer]);
+
+  useEffect(() => {
+    if (!timer) return;
+    const restoreWakeLock = () => {
+      if (document.visibilityState === "visible") void requestTimerWakeLock();
+    };
+    document.addEventListener("visibilitychange", restoreWakeLock);
+    return () => document.removeEventListener("visibilitychange", restoreWakeLock);
+  }, [timer, requestTimerWakeLock]);
 
   useEffect(() => {
     const journey = data.activeJourney;
@@ -577,10 +606,7 @@ export default function Home() {
       audioContext.current ??= new AudioContext();
       void audioContext.current.resume().catch(() => undefined);
     } catch { /* timer still works visually */ }
-    const navigatorWithWakeLock = navigator as NavigatorWithWakeLock;
-    if (navigatorWithWakeLock.wakeLock) {
-      try { wakeLock.current = await navigatorWithWakeLock.wakeLock.request("screen"); } catch { setNotice("画面が消える場合があります。タイマー中は画面を開いたままにしてください。"); }
-    }
+    await requestTimerWakeLock();
   }
 
   function makeJourneyStep(previous?: JourneyStep, missionOnly = false): JourneyStep {
@@ -807,6 +833,7 @@ export default function Home() {
         setCandidateEditor(null);
         setCreatingPreset(false);
         setCustomPickerOpen(false);
+        setPersistenceEnabled(true);
         setNotice("バックアップを読み込みました。");
       }
     } catch {
@@ -819,6 +846,7 @@ export default function Home() {
     if (!window.confirm("自作プリセット、候補、設定、履歴が消去されます。続けますか？")) return;
     if (!window.confirm("本当にすべて初期状態に戻しますか？")) return;
     const fresh = makeDefaults();
+    setPersistenceEnabled(true);
     setData(fresh);
     setActiveId("work");
     setManageId("work");
@@ -930,7 +958,7 @@ export default function Home() {
             <p className="eyebrow">BREAK TIMER</p><h1>ひと休みしよう。</h1>
             <div className="timer-clock" aria-live="off"><span>{timerMinutes}</span><i>:</i><span>{timerSeconds}</span></div>
             <h2>{timer.label}</h2><p>タイマー中はこの画面を開いたままにしてください。</p>
-            <button className="secondary-button" onClick={() => { setTimer(null); wakeLock.current?.release?.(); setView("home"); }}>タイマーを終了</button>
+            <button className="secondary-button" onClick={() => { setTimer(null); wakeLock.current?.release?.().catch(() => undefined); wakeLock.current = null; setView("home"); }}>タイマーを終了</button>
           </div>
         )}
 
@@ -940,7 +968,7 @@ export default function Home() {
             {!data.activeJourney ? (
               <>
                 <div className="safety-card"><b>安全に楽しむために</b><p>操作と画面の確認は、必ず安全な場所に停車してから。交通ルールと道路状況を最優先にしてください。</p><small>GPSや位置情報は使用しません。</small></div>
-                <fieldset className="duration-picker"><legend>予定時間を選ぶ</legend>{[30, 60, 90, null].map((duration) => <button key={duration ?? "free"} className={journeyDuration === duration ? "active" : ""} onClick={() => setJourneyDuration(duration)}>{duration ? `${duration}分` : "時間無制限"}</button>)}</fieldset>
+                <fieldset className="duration-picker"><legend>予定時間を選ぶ</legend>{[30, 60, 90, null].map((duration) => <button type="button" key={duration ?? "free"} className={journeyDuration === duration ? "active" : ""} aria-pressed={journeyDuration === duration} onClick={() => setJourneyDuration(duration)}>{duration ? `${duration}分` : "時間無制限"}</button>)}</fieldset>
                 <button className="primary-button" onClick={startJourney}>4つの旅リールを回す <span>↗</span></button>
               </>
             ) : (
@@ -1023,7 +1051,7 @@ export default function Home() {
           </div>
         )}
 
-        {view !== "timer" && view !== "journey" && <nav className="bottom-nav" aria-label="メインメニュー"><button className={view === "home" ? "active" : ""} onClick={() => setView("home")}><span className="nav-wheel" aria-hidden="true">✺</span>ルーレット</button><button className={view === "history" ? "active" : ""} onClick={() => setView("history")}><span className="nav-clock" aria-hidden="true">◷</span>履歴</button><button className={view === "presets" ? "active" : ""} onClick={() => setView("presets")}><span className="nav-star" aria-hidden="true">☆</span>プリセット</button></nav>}
+        {view !== "timer" && view !== "journey" && <nav className="bottom-nav" aria-label="メインメニュー"><button className={view === "home" ? "active" : ""} aria-current={view === "home" ? "page" : undefined} onClick={() => setView("home")}><span className="nav-wheel" aria-hidden="true">✺</span>ルーレット</button><button className={view === "history" ? "active" : ""} aria-current={view === "history" ? "page" : undefined} onClick={() => setView("history")}><span className="nav-clock" aria-hidden="true">◷</span>履歴</button><button className={view === "presets" ? "active" : ""} aria-current={view === "presets" ? "page" : undefined} onClick={() => setView("presets")}><span className="nav-star" aria-hidden="true">☆</span>プリセット</button></nav>}
         {(view === "timer" || view === "journey") && <button className="floating-back" onClick={goHome} aria-label="ホームへ戻る">←</button>}
         {candidateEditor && editingCandidate && <div className="editor-backdrop" onKeyDown={(event) => { if (event.key === "Escape") setCandidateEditor(null); }} onMouseDown={(event) => { if (event.currentTarget === event.target) setCandidateEditor(null); }}><section className="candidate-dialog" role="dialog" aria-modal="true" aria-labelledby="candidate-dialog-title"><p className="eyebrow">EDIT CANDIDATE</p><h2 id="candidate-dialog-title">候補を編集</h2><label htmlFor="candidate-edit-input">候補の内容</label><input id="candidate-edit-input" value={candidateEditor.draft} onChange={(event) => setCandidateEditor({ ...candidateEditor, draft: event.target.value })} onKeyDown={(event) => event.key === "Enter" && !event.nativeEvent.isComposing && saveCandidateEdit()} maxLength={80} autoFocus /><div className="dialog-actions"><button className="dialog-save" onClick={saveCandidateEdit}>保存</button><button onClick={() => setCandidateEditor(null)}>キャンセル</button></div><button className="dialog-delete" onClick={deleteCandidateFromEditor}>{candidateEditor.presetId === "free" ? "この枠を空に戻す" : "この候補を削除"}</button></section></div>}
       </section>
