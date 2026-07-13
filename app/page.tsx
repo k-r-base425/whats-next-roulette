@@ -191,6 +191,7 @@ const ensureDefaultPresets = (data: AppData): AppData => {
 const STORAGE_KEY = "whats-next-app-v1";
 const MAX_PRESETS = 51;
 const MAX_CANDIDATES = 500;
+const MAX_JOURNEY_STEPS = 1000;
 const directions = ["次に安全に曲がれる場所で左へ", "次に安全に曲がれる場所で右へ", "そのまま直進", "次の信号まで直進", "次の分かれ道は好きな方へ", "景色が気になる方へ進む", "明るく走りやすい道を選ぶ"];
 const routeStyles = ["緑の多い道", "静かな細道", "見晴らしのよい道", "平坦で走りやすい道", "川沿いの道", "にぎやかな通り", "住宅街の道"];
 const journeyThemes = ["景色を探す", "色を探す", "店を探す", "季節を探す", "面白い名前を探す", "建物を眺める", "直感にまかせる"];
@@ -321,6 +322,8 @@ export default function Home() {
   const [timer, setTimer] = useState<{ label: string; endAt: number; duration: number } | null>(null);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
+  const candidateDialogRef = useRef<HTMLElement>(null);
+  const candidateReturnFocus = useRef<HTMLElement | null>(null);
   const wakeLock = useRef<WakeLockHandle | null>(null);
   const audioContext = useRef<AudioContext | null>(null);
   const reelInterval = useRef<number | null>(null);
@@ -329,7 +332,8 @@ export default function Home() {
 
   const activePreset = data.presets.find((preset) => preset.id === activeId) ?? data.presets[0];
   const managedPreset = data.presets.find((preset) => preset.id === manageId) ?? data.presets[0];
-  const homePresets = ["work", "play", "solo", "recovery", "bicycle", "workout", "free"].map((id) => data.presets.find((preset) => preset.id === id)).filter((preset): preset is Preset => Boolean(preset));
+  const systemHomePresets = ["work", "play", "solo", "recovery", "bicycle", "workout", "free"].map((id) => data.presets.find((preset) => preset.id === id)).filter((preset): preset is Preset => Boolean(preset));
+  const homePresets = activePreset?.custom ? [...systemHomePresets, activePreset] : systemHomePresets;
   const enabledItems = useMemo(() => activePreset?.items.filter((entry) => entry.enabled) ?? [], [activePreset]);
   const previewWheelItems = useMemo(() => activePreset?.id === "free" ? activePreset.items.slice(0, 6) : enabledItems.length ? Array.from({ length: 6 }, (_, index) => enabledItems[Math.floor(index * enabledItems.length / 6)]) : [], [activePreset, enabledItems]);
   const visibleWheelItems = wheelSet?.presetId === activePreset?.id ? wheelSet.items : previewWheelItems;
@@ -651,9 +655,14 @@ export default function Home() {
   function drawJourneyStep(status: "done" | "skipped", missionOnly = false) {
     const previous = data.activeJourney?.steps.at(-1);
     if (!previous) return;
+    if ((data.activeJourney?.steps.length ?? 0) >= MAX_JOURNEY_STEPS) {
+      setNotice("旅の記録が上限に達しました。現在の旅を終了して、新しい旅を始めてください。");
+      return;
+    }
     const nextStep = makeJourneyStep(previous, missionOnly);
     setData((current) => {
       if (!current.activeJourney) return current;
+      if (current.activeJourney.steps.length >= MAX_JOURNEY_STEPS) return current;
       const steps = [...current.activeJourney.steps];
       const last = steps[steps.length - 1];
       if (last?.status === "active") steps[steps.length - 1] = { ...last, status };
@@ -704,8 +713,38 @@ export default function Home() {
     setNewItem("");
   }
 
+  function closeCandidateEditor() {
+    const returnTarget = candidateReturnFocus.current;
+    setCandidateEditor(null);
+    window.requestAnimationFrame(() => {
+      if (returnTarget?.isConnected) returnTarget.focus();
+      else document.querySelector<HTMLElement>(".candidate-add-row input, .create-preset-toggle")?.focus();
+    });
+  }
+
+  function handleCandidateDialogKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeCandidateEditor();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = [...(candidateDialogRef.current?.querySelectorAll<HTMLElement>("input:not([disabled]), button:not([disabled])") ?? [])];
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   function editCandidate(candidate: Candidate) {
     if (!managedPreset) return;
+    candidateReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setCandidateEditor({ presetId: managedPreset.id, candidateId: candidate.id, draft: managedPreset.id === "free" && candidate.label === "＋ 自由に入力" ? "" : candidate.label });
   }
 
@@ -724,7 +763,7 @@ export default function Home() {
       return;
     }
     updatePreset(preset.id, (current) => ({ ...current, items: current.items.map((entry) => entry.id === candidateEditor.candidateId ? { ...entry, label: next, minutes: minutes || undefined, enabled: preset.id === "free" ? true : entry.enabled } : entry) }));
-    setCandidateEditor(null);
+    closeCandidateEditor();
     setNotice("候補を更新しました。");
   }
 
@@ -735,13 +774,13 @@ export default function Home() {
     if (!preset || !candidate) return;
     if (preset.id === "free") {
       updatePreset(preset.id, (current) => ({ ...current, items: current.items.map((entry) => entry.id === candidate.id ? { ...entry, label: "＋ 自由に入力", enabled: false, minutes: undefined } : entry) }));
-      setCandidateEditor(null);
+      closeCandidateEditor();
       setNotice("フリー枠を空に戻しました。");
       return;
     }
     if (!window.confirm(`「${candidate.label}」を削除しますか？`)) return;
     updatePreset(preset.id, (current) => ({ ...current, items: current.items.filter((entry) => entry.id !== candidate.id) }));
-    setCandidateEditor(null);
+    closeCandidateEditor();
     setNotice("候補を削除しました。");
   }
 
@@ -907,7 +946,7 @@ export default function Home() {
                 <path d="M29 35c5 5 11 5 16 0M62 43l13 8-2-15" />
                 <text x="67" y="21">?</text>
               </svg>
-              <div><h1 id="mode-question-title">いま、どんな時間にする？</h1><p><span>●</span> 7つのモードから選ぶ <span>●</span></p></div>
+              <div><h1 id="mode-question-title">いま、どんな時間にする？</h1><p><span>●</span> {homePresets.length}つのモードから選ぶ <span>●</span></p></div>
             </section>
             <div className="preset-grid" aria-label="プリセットを選ぶ">
               {homePresets.map((preset) => (
@@ -1053,7 +1092,7 @@ export default function Home() {
 
         {view !== "timer" && view !== "journey" && <nav className="bottom-nav" aria-label="メインメニュー"><button className={view === "home" ? "active" : ""} aria-current={view === "home" ? "page" : undefined} onClick={() => setView("home")}><span className="nav-wheel" aria-hidden="true">✺</span>ルーレット</button><button className={view === "history" ? "active" : ""} aria-current={view === "history" ? "page" : undefined} onClick={() => setView("history")}><span className="nav-clock" aria-hidden="true">◷</span>履歴</button><button className={view === "presets" ? "active" : ""} aria-current={view === "presets" ? "page" : undefined} onClick={() => setView("presets")}><span className="nav-star" aria-hidden="true">☆</span>プリセット</button></nav>}
         {(view === "timer" || view === "journey") && <button className="floating-back" onClick={goHome} aria-label="ホームへ戻る">←</button>}
-        {candidateEditor && editingCandidate && <div className="editor-backdrop" onKeyDown={(event) => { if (event.key === "Escape") setCandidateEditor(null); }} onMouseDown={(event) => { if (event.currentTarget === event.target) setCandidateEditor(null); }}><section className="candidate-dialog" role="dialog" aria-modal="true" aria-labelledby="candidate-dialog-title"><p className="eyebrow">EDIT CANDIDATE</p><h2 id="candidate-dialog-title">候補を編集</h2><label htmlFor="candidate-edit-input">候補の内容</label><input id="candidate-edit-input" value={candidateEditor.draft} onChange={(event) => setCandidateEditor({ ...candidateEditor, draft: event.target.value })} onKeyDown={(event) => event.key === "Enter" && !event.nativeEvent.isComposing && saveCandidateEdit()} maxLength={80} autoFocus /><div className="dialog-actions"><button className="dialog-save" onClick={saveCandidateEdit}>保存</button><button onClick={() => setCandidateEditor(null)}>キャンセル</button></div><button className="dialog-delete" onClick={deleteCandidateFromEditor}>{candidateEditor.presetId === "free" ? "この枠を空に戻す" : "この候補を削除"}</button></section></div>}
+        {candidateEditor && editingCandidate && <div className="editor-backdrop" onKeyDown={handleCandidateDialogKeyDown} onMouseDown={(event) => { if (event.currentTarget === event.target) closeCandidateEditor(); }}><section ref={candidateDialogRef} className="candidate-dialog" role="dialog" aria-modal="true" aria-labelledby="candidate-dialog-title"><p className="eyebrow">EDIT CANDIDATE</p><h2 id="candidate-dialog-title">候補を編集</h2><label htmlFor="candidate-edit-input">候補の内容</label><input id="candidate-edit-input" value={candidateEditor.draft} onChange={(event) => setCandidateEditor({ ...candidateEditor, draft: event.target.value })} onKeyDown={(event) => event.key === "Enter" && !event.nativeEvent.isComposing && saveCandidateEdit()} maxLength={80} autoFocus /><div className="dialog-actions"><button className="dialog-save" onClick={saveCandidateEdit}>保存</button><button onClick={closeCandidateEditor}>キャンセル</button></div><button className="dialog-delete" onClick={deleteCandidateFromEditor}>{candidateEditor.presetId === "free" ? "この枠を空に戻す" : "この候補を削除"}</button></section></div>}
       </section>
     </main>
   );

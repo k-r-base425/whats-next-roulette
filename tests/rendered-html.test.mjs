@@ -45,6 +45,7 @@ test("keeps offline data and accessibility safeguards in place", async () => {
   ]);
 
   assert.match(page, /const MAX_CANDIDATES = 500/);
+  assert.match(page, /const MAX_JOURNEY_STEPS = 1000/);
   assert.match(page, /if \(!hydrated \|\| !persistenceEnabled\) return/);
   assert.match(page, /visibilitychange/);
   assert.match(page, /aria-label=\{`\$\{entry\.label\}を\$\{entry\.enabled/);
@@ -53,5 +54,9 @@ test("keeps offline data and accessibility safeguards in place", async () => {
   assert.match(manifest, /"display": "standalone"/);
   assert.match(readme, /^# What’s Next\?/m);
 
-  assert.deepEqual(await readdir(new URL("app/_sites-preview", projectRoot)), []);
+  const previewFiles = await readdir(new URL("app/_sites-preview", projectRoot)).catch((error) => {
+    if (error?.code === "ENOENT") return [];
+    throw error;
+  });
+  assert.deepEqual(previewFiles, []);
 });
