@@ -54,15 +54,17 @@ h1 em { color: var(--primary-dark); font-style: italic; }
 .wheel-stage { position: relative; padding: 23px 0 9px; text-align: center; --accent: var(--coral); }
 .wheel-stage.lemon { --accent: var(--lemon); } .wheel-stage.violet { --accent: var(--violet); } .wheel-stage.mint { --accent: var(--mint); } .wheel-stage.sky { --accent: var(--sky); }
 .wheel-pointer { width: 32px; height: 32px; display: grid; place-items: center; position: absolute; z-index: 4; top: 11px; left: calc(50% - 16px); border-radius: 50%; color: var(--ink); background: var(--lemon); border: 2px solid var(--ink); font-size: 13px; }
-.wheel { --rotation: 0deg; width: min(61vw, 244px); height: min(61vw, 244px); display: block; position: relative; margin: 0 auto; border: 3px solid var(--ink); border-radius: 50%; background: conic-gradient(from -15deg, var(--primary) 0 45deg, #ffbd59 45deg 90deg, var(--accent) 90deg 150deg, #fff2a8 150deg 210deg, var(--violet) 210deg 270deg, var(--mint) 270deg 330deg, var(--primary) 330deg); box-shadow: 7px 9px 0 var(--ink), inset 0 0 0 9px rgba(255,255,255,.55); cursor: pointer; transform: rotate(var(--rotation)); transition: transform .86s cubic-bezier(.2,.8,.2,1); }
+.wheel { --rotation: 0deg; width: min(61vw, 244px); height: min(61vw, 244px); display: block; position: relative; margin: 0 auto; border: 3px solid var(--ink); border-radius: 50%; background: conic-gradient(from -30deg, #ff9d83 0 60deg, #ffd260 60deg 120deg, #fff0a6 120deg 180deg, #a991ff 180deg 240deg, #61d9ae 240deg 300deg, var(--primary) 300deg 360deg); box-shadow: inset 0 0 0 7px rgba(255,255,255,.58); cursor: pointer; transform: rotate(var(--rotation)); transition: transform .86s cubic-bezier(.2,.8,.2,1); }
 .wheel:disabled { cursor: wait; }
 .wheel::before { content: ""; position: absolute; inset: 17px; border: 2px dashed rgba(17,24,39,.45); border-radius: 50%; }
-.wheel-orbit { position: absolute; z-index: 2; width: 10px; height: 10px; border: 2px solid var(--ink); border-radius: 50%; background: white; }
-.orbit-one { top: 28px; left: 54px; } .orbit-two { right: 35px; bottom: 45px; background: var(--lemon); }
-.direction-mark { position: absolute; z-index: 2; font: 900 11px/1 var(--sans); }
-.direction-mark.n { top: 12px; left: calc(50% - 4px); } .direction-mark.s { bottom: 11px; left: calc(50% - 4px); transform: rotate(180deg); }
-.direction-mark.e { right: 13px; top: calc(50% - 5px); transform: rotate(90deg); } .direction-mark.w { left: 12px; top: calc(50% - 5px); transform: rotate(-90deg); }
-.wheel-center { width: 55%; height: 55%; position: absolute; z-index: 3; top: 22.5%; left: 22.5%; display: grid; align-content: center; gap: 6px; padding: 16px; border: 3px solid var(--ink); border-radius: 50%; background: var(--surface); transform: rotate(calc(-1 * var(--rotation))); transition: transform .86s cubic-bezier(.2,.8,.2,1); }
+.wheel-label { width: 68px; min-height: 27px; position: absolute; z-index: 2; display: grid; place-items: center; padding: 3px 5px; border: 1px solid rgba(17,24,39,.45); border-radius: 999px; background: rgba(255,255,255,.9); color: var(--ink); font: 900 8px/1.18 var(--sans); letter-spacing: -.02em; overflow: hidden; transition: transform .86s cubic-bezier(.2,.8,.2,1); }
+.wheel-label.label-0 { top: 24px; left: 50%; transform: translateX(-50%) rotate(calc(-1 * var(--rotation))); }
+.wheel-label.label-1 { top: 48px; right: 3px; transform: rotate(calc(-1 * var(--rotation))); }
+.wheel-label.label-2 { right: 3px; bottom: 48px; transform: rotate(calc(-1 * var(--rotation))); }
+.wheel-label.label-3 { bottom: 24px; left: 50%; transform: translateX(-50%) rotate(calc(-1 * var(--rotation))); }
+.wheel-label.label-4 { bottom: 48px; left: 3px; transform: rotate(calc(-1 * var(--rotation))); }
+.wheel-label.label-5 { top: 48px; left: 3px; transform: rotate(calc(-1 * var(--rotation))); }
+.wheel-center { width: 48%; height: 48%; position: absolute; z-index: 3; top: 26%; left: 26%; display: grid; align-content: center; gap: 5px; padding: 13px; border: 3px solid var(--ink); border-radius: 50%; background: var(--surface); transform: rotate(calc(-1 * var(--rotation))); transition: transform .86s cubic-bezier(.2,.8,.2,1); }
 .wheel-center small { font-size: 10px; font-weight: 800; color: var(--primary-dark); letter-spacing: .08em; }
 .wheel-center b { font: 700 clamp(14px, 4vw, 18px)/1.25 var(--display); overflow-wrap: anywhere; }
 .preset-description { margin: 15px 0 0; font-size: 12px; color: var(--muted); }

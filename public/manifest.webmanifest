@@ -2,14 +2,14 @@
   "name": "What’s Next?",
   "short_name": "What’s Next?",
   "description": "暇な時間を、次の一歩に。オフラインで使える行動ルーレット。",
-  "start_url": "/",
-  "scope": "/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#F6F6F1",
   "theme_color": "#FF5701",
   "orientation": "portrait-primary",
   "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ]
 }

@@ -160,6 +160,16 @@ export default function Home() {
   const activePreset = data.presets.find((preset) => preset.id === activeId) ?? data.presets[0];
   const managedPreset = data.presets.find((preset) => preset.id === manageId) ?? data.presets[0];
   const enabledItems = useMemo(() => activePreset?.items.filter((entry) => entry.enabled) ?? [], [activePreset]);
+  const wheelLabels = useMemo(() => {
+    if (activePreset?.journey) return ["北へ", "右へ", "冒険", "南へ", "左へ", "直進"];
+    const count = Math.min(6, enabledItems.length);
+    if (!count) return [];
+    return Array.from({ length: count }, (_, index) => {
+      const entry = enabledItems[Math.floor(index * enabledItems.length / count)];
+      const shortLabel = entry.label.replace(/する$|してみる$|を楽しむ$/u, "");
+      return shortLabel.length > 9 ? `${shortLabel.slice(0, 8)}…` : shortLabel;
+    });
+  }, [activePreset, enabledItems]);
   const speak = useCallback((text: string) => {
     if (!data.speech || !("speechSynthesis" in window)) return;
     window.speechSynthesis.cancel();
@@ -187,7 +197,8 @@ export default function Home() {
       if (loadFailed) setNotice("保存データを読み込めなかったため、初期状態で開きました。");
       setHydrated(true);
     });
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+    const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register(`${basePath}/sw.js`).catch(() => undefined);
     const captureInstall = (event: Event) => {
       event.preventDefault();
       setInstallPrompt(event as InstallPromptEvent);
@@ -460,8 +471,7 @@ export default function Home() {
             <section className={`wheel-stage ${activePreset.tone}`}>
               <div className="wheel-pointer">▼</div>
               <button className={`wheel ${spinning ? "is-spinning" : ""}`} style={{ "--rotation": `${rotation}deg` } as React.CSSProperties} onClick={spin} disabled={spinning} aria-label={activePreset.journey ? "旅モードを開く" : "ルーレットを回す"}>
-                <span className="wheel-orbit orbit-one" /><span className="wheel-orbit orbit-two" />
-                <span className="direction-mark n">N</span><span className="direction-mark e">E</span><span className="direction-mark s">S</span><span className="direction-mark w">W</span>
+                {wheelLabels.map((label, index) => <span className={`wheel-label label-${index}`} key={`${label}-${index}`}>{label}</span>)}
                 <span className="wheel-center"><small>{activePreset.name}</small><b>{spinning ? "選んでいます…" : result?.label ?? (activePreset.journey ? "旅へ出よう" : "何をする？")}</b></span>
               </button>
               <p className="preset-description">{activePreset.description}</p>

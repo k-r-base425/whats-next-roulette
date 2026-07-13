@@ -1,26 +1,23 @@
 import type { Metadata, Viewport } from "next";
-import { headers } from "next/headers";
 import "./globals.css";
 
-export async function generateMetadata(): Promise<Metadata> {
-  const incoming = await headers();
-  const host = incoming.get("x-forwarded-host") ?? incoming.get("host") ?? "localhost:3000";
-  const protocol = incoming.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  const origin = `${protocol}://${host}`;
-  const title = "What’s Next? — 暇な時間を、次の一歩に。";
-  const description = "仕事の休憩、遊び、暇つぶし、自転車の旅をルーレットで決めるオフラインアプリ。";
-  return {
-    title,
-    description,
-    applicationName: "What’s Next?",
-    manifest: "/manifest.webmanifest",
-    appleWebApp: { capable: true, statusBarStyle: "default", title: "What’s Next?" },
-    formatDetection: { telephone: false },
-    icons: { icon: [{ url: "/icon-192.png", type: "image/png" }], apple: [{ url: "/icon-192.png", type: "image/png" }] },
-    openGraph: { title, description, type: "website", images: [{ url: `${origin}/og.png`, width: 1536, height: 1024, alt: "What’s Next?" }] },
-    twitter: { card: "summary_large_image", title, description, images: [`${origin}/og.png`] },
-  };
-}
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+const title = "What’s Next? — 暇な時間を、次の一歩に。";
+const description = "仕事の休憩、遊び、暇つぶし、自転車の旅をルーレットで決めるオフラインアプリ。";
+
+export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
+  title,
+  description,
+  applicationName: "What’s Next?",
+  manifest: `${basePath}/manifest.webmanifest`,
+  appleWebApp: { capable: true, statusBarStyle: "default", title: "What’s Next?" },
+  formatDetection: { telephone: false },
+  icons: { icon: [{ url: `${basePath}/icon-192.png`, type: "image/png" }], apple: [{ url: `${basePath}/icon-192.png`, type: "image/png" }] },
+  openGraph: { title, description, type: "website", images: [{ url: `${basePath}/og.png`, width: 1536, height: 1024, alt: "What’s Next?" }] },
+  twitter: { card: "summary_large_image", title, description, images: [`${basePath}/og.png`] },
+};
 
 export const viewport: Viewport = {
   width: "device-width",
