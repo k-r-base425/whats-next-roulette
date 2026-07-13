@@ -48,6 +48,8 @@ type AppData = {
 type View = "home" | "history" | "presets" | "settings" | "journey" | "timer";
 type SpinResult = { label: string; minutes?: number } | null;
 type ReelDisplay = { direction: string; route: string; theme: string; mission: string };
+type HistoryFeedItem = { kind: "decision"; id: string; at: number; decision: Decision } | { kind: "journey"; id: string; at: number; journey: JourneyLog };
+type CandidateEditor = { presetId: string; candidateId: string; draft: string } | null;
 type InstallPromptEvent = Event & { prompt: () => Promise<void> };
 type WakeLockHandle = { release: () => Promise<void> };
 type NavigatorWithWakeLock = Navigator & { wakeLock?: { request: (kind: "screen") => Promise<WakeLockHandle> } };
@@ -132,15 +134,26 @@ const makeDefaults = (): AppData => ({
 });
 
 const ensureRecoveryPreset = (data: AppData): AppData => {
-  if (data.presets.some((preset) => preset.id === "recovery")) return data;
   const presets = [...data.presets];
-  const bicycleIndex = presets.findIndex((preset) => preset.id === "bicycle");
-  presets.splice(bicycleIndex >= 0 ? bicycleIndex + 1 : presets.length, 0, makeRecoveryPreset());
-  return { ...data, presets };
+  if (!presets.some((preset) => preset.id === "recovery")) {
+    const bicycleIndex = presets.findIndex((preset) => preset.id === "bicycle");
+    presets.splice(bicycleIndex >= 0 ? bicycleIndex + 1 : presets.length, 0, makeRecoveryPreset());
+  }
+  return {
+    ...data,
+    presets: presets.map((preset) => (preset.id === "work" || preset.id === "recovery") ? {
+      ...preset,
+      items: preset.items.map((entry) => {
+        const minutes = Number(entry.label.match(/^(1|3|5|10|15)分/)?.[1] ?? 0);
+        return { ...entry, minutes: minutes || entry.minutes };
+      }),
+    } : preset),
+  };
 };
 
 const STORAGE_KEY = "whats-next-app-v1";
 const MAX_PRESETS = 51;
+const MAX_CANDIDATES = 500;
 const directions = ["次に安全に曲がれる場所で左へ", "次に安全に曲がれる場所で右へ", "そのまま直進", "次の信号まで直進", "次の分かれ道は好きな方へ", "景色が気になる方へ進む", "明るく走りやすい道を選ぶ"];
 const routeStyles = ["緑の多い道", "静かな細道", "見晴らしのよい道", "平坦で走りやすい道", "川沿いの道", "にぎやかな通り", "住宅街の道"];
 const journeyThemes = ["景色を探す", "色を探す", "店を探す", "季節を探す", "面白い名前を探す", "建物を眺める", "直感にまかせる"];
@@ -149,6 +162,16 @@ const cardinals = ["北へ出発", "東へ出発", "南へ出発", "西へ出発
 const journeyWheelLabels = ["北へ", "東へ", "冒険", "南へ", "西へ", "直進"];
 const journeyDirectionSegments: Record<string, number> = { "北へ出発": 0, "東へ出発": 1, "南へ出発": 3, "西へ出発": 4 };
 const randomFrom = <T,>(list: T[]): T => list[Math.floor(Math.random() * list.length)];
+const startOfLocalDay = (time: number) => { const date = new Date(time); return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime(); };
+const historyGroup = (time: number, now = Date.now()) => {
+  const today = startOfLocalDay(now);
+  const day = startOfLocalDay(time);
+  const yesterdayDate = new Date(today);
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  if (day === today) return "今日";
+  if (day === yesterdayDate.getTime()) return "昨日";
+  return "それ以前";
+};
 const makeWheelItems = (items: Candidate[]): Candidate[] => {
   if (!items.length) return [];
   const shuffled = [...items];
@@ -172,7 +195,8 @@ const isActiveJourney = (value: unknown): value is Journey => isRecord(value) &&
 
 function safeData(value: unknown): value is AppData {
   if (!isRecord(value) || value.version !== 1 || typeof value.speech !== "boolean") return false;
-  if (!Array.isArray(value.presets) || value.presets.length < 1 || value.presets.length > MAX_PRESETS || !value.presets.every(isPreset)) return false;
+  const legacyRecoveryAllowance = Array.isArray(value.presets) && value.presets.length === MAX_PRESETS + 1 && value.presets.some((preset) => isRecord(preset) && preset.id === "recovery");
+  if (!Array.isArray(value.presets) || value.presets.length < 1 || (value.presets.length > MAX_PRESETS && !legacyRecoveryAllowance) || !value.presets.every(isPreset)) return false;
   if (!value.presets.some((preset) => !preset.journey)) return false;
   if (!Array.isArray(value.decisions) || value.decisions.length > 1000 || !value.decisions.every(isDecision)) return false;
   if (!Array.isArray(value.journeys) || value.journeys.length > 100 || !value.journeys.every(isJourneyLog)) return false;
@@ -202,6 +226,10 @@ export default function Home() {
   const [manageId, setManageId] = useState("work");
   const [newItem, setNewItem] = useState("");
   const [newPreset, setNewPreset] = useState("");
+  const [candidateEditor, setCandidateEditor] = useState<CandidateEditor>(null);
+  const [creatingPreset, setCreatingPreset] = useState(false);
+  const [customPickerOpen, setCustomPickerOpen] = useState(false);
+  const [localDayKey, setLocalDayKey] = useState(() => startOfLocalDay(Date.now()));
   const [journeyDuration, setJourneyDuration] = useState<number | null>(30);
   const [journeySpinning, setJourneySpinning] = useState(false);
   const [reelDisplay, setReelDisplay] = useState<ReelDisplay>({ direction: directions[0], route: routeStyles[0], theme: journeyThemes[0], mission: missions[0] });
@@ -220,6 +248,30 @@ export default function Home() {
   const enabledItems = useMemo(() => activePreset?.items.filter((entry) => entry.enabled) ?? [], [activePreset]);
   const previewWheelItems = useMemo(() => enabledItems.length ? Array.from({ length: 6 }, (_, index) => enabledItems[Math.floor(index * enabledItems.length / 6)]) : [], [enabledItems]);
   const visibleWheelItems = wheelSet?.presetId === activePreset?.id ? wheelSet.items : previewWheelItems;
+  const editablePresets = data.presets.filter((preset) => !preset.journey);
+  const customPresets = editablePresets.filter((preset) => preset.custom);
+  const historyFeed = useMemo<HistoryFeedItem[]>(() => [
+    ...data.decisions.map((decision) => ({ kind: "decision" as const, id: decision.id, at: decision.at, decision })),
+    ...data.journeys.map((journey) => ({ kind: "journey" as const, id: journey.id, at: journey.startedAt, journey })),
+  ].sort((a, b) => b.at - a.at), [data.decisions, data.journeys]);
+  const groupedHistory = useMemo(() => {
+    const groups = new Map<string, HistoryFeedItem[]>();
+    for (const label of ["今日", "昨日", "それ以前"]) groups.set(label, []);
+    for (const entry of historyFeed) groups.get(historyGroup(entry.at, localDayKey))?.push(entry);
+    return [...groups.entries()].filter(([, entries]) => entries.length > 0);
+  }, [historyFeed, localDayKey]);
+  const monthlyStats = useMemo(() => {
+    const now = new Date(localDayKey);
+    const start = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
+    return {
+      decisions: data.decisions.filter((entry) => entry.at >= start && entry.at < end).length,
+      journeys: data.journeys.filter((entry) => entry.startedAt >= start && entry.startedAt < end).length,
+    };
+  }, [data.decisions, data.journeys, localDayKey]);
+  const editingCandidate = candidateEditor
+    ? data.presets.find((preset) => preset.id === candidateEditor.presetId)?.items.find((entry) => entry.id === candidateEditor.candidateId)
+    : undefined;
   const wheelLabels = useMemo(() => {
     if (activePreset?.journey) return journeyWheelLabels;
     return visibleWheelItems.map((entry) => {
@@ -277,6 +329,13 @@ export default function Home() {
     if (reelInterval.current) window.clearInterval(reelInterval.current);
     if (reelTimeout.current) window.clearTimeout(reelTimeout.current);
   }, []);
+
+  useEffect(() => {
+    const now = new Date();
+    const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+    const id = window.setTimeout(() => setLocalDayKey(startOfLocalDay(Date.now())), nextMidnight - now.getTime() + 250);
+    return () => window.clearTimeout(id);
+  }, [localDayKey]);
 
   useEffect(() => {
     if (!timer) return;
@@ -367,8 +426,20 @@ export default function Home() {
 
   function acceptResult() {
     if (!result || !activePreset) return;
-    setData((current) => ({ ...current, decisions: [{ id: uid(), preset: activePreset.name, label: result.label, at: Date.now() }, ...current.decisions].slice(0, 100) }));
+    setData((current) => ({ ...current, decisions: [{ id: uid(), preset: activePreset.name, label: result.label, at: Date.now() }, ...current.decisions].slice(0, 1000) }));
     setNotice("今日の決定に追加しました。");
+  }
+
+  function reuseDecision(decision: Decision) {
+    const preset = data.presets.find((entry) => !entry.journey && entry.name === decision.preset && entry.items.some((candidate) => candidate.label === decision.label));
+    const candidate = preset?.items.find((entry) => entry.label === decision.label);
+    if (!preset || !candidate) {
+      setNotice("この候補は現在のプリセットに見つかりませんでした。");
+      return;
+    }
+    setActiveId(preset.id);
+    setResult({ label: candidate.label, minutes: candidate.minutes });
+    setView("home");
   }
 
   async function startTimer() {
@@ -449,7 +520,7 @@ export default function Home() {
       if (!current.activeJourney) return current;
       const steps = current.activeJourney.steps.map((step) => step.status === "active" ? { ...step, status: "skipped" as const } : step);
       const log: JourneyLog = { id: uid(), endedAt: Date.now(), ...current.activeJourney, steps };
-      return { ...current, activeJourney: null, journeys: [log, ...current.journeys].slice(0, 30) };
+      return { ...current, activeJourney: null, journeys: [log, ...current.journeys].slice(0, 100) };
     });
     setNotice("今日の冒険を保存しました。");
     setView("history");
@@ -462,6 +533,10 @@ export default function Home() {
   function addCandidate() {
     const label = newItem.trim();
     if (!label || !managedPreset || managedPreset.journey) return;
+    if (managedPreset.items.length >= MAX_CANDIDATES) {
+      setNotice(`候補は1つのプリセットにつき${MAX_CANDIDATES}件までです。`);
+      return;
+    }
     const timedPreset = managedPreset.id === "work" || managedPreset.id === "recovery";
     const minutes = timedPreset ? Number(label.match(/^(1|3|5|10|15)分/)?.[1] ?? 0) : undefined;
     if (timedPreset && !minutes) {
@@ -474,15 +549,33 @@ export default function Home() {
 
   function editCandidate(candidate: Candidate) {
     if (!managedPreset) return;
-    const next = window.prompt("候補を編集", candidate.label)?.trim();
-    if (!next || next === candidate.label) return;
-    const timedPreset = managedPreset.id === "work" || managedPreset.id === "recovery";
-    const minutes = timedPreset ? Number(next.match(/^(1|3|5|10|15)分/)?.[1] ?? 0) : candidate.minutes;
+    setCandidateEditor({ presetId: managedPreset.id, candidateId: candidate.id, draft: candidate.label });
+  }
+
+  function saveCandidateEdit() {
+    if (!candidateEditor) return;
+    const preset = data.presets.find((entry) => entry.id === candidateEditor.presetId);
+    const next = candidateEditor.draft.trim();
+    if (!preset || !next) return;
+    const timedPreset = preset.id === "work" || preset.id === "recovery";
+    const minutes = timedPreset ? Number(next.match(/^(1|3|5|10|15)分/)?.[1] ?? 0) : preset.items.find((entry) => entry.id === candidateEditor.candidateId)?.minutes;
     if (timedPreset && !minutes) {
-      setNotice(`${managedPreset.name}の候補は「1分・3分・5分・10分・15分」のどれかから始めてください。`);
+      setNotice(`${preset.name}の候補は「1分・3分・5分・10分・15分」のどれかから始めてください。`);
       return;
     }
-    updatePreset(managedPreset.id, (preset) => ({ ...preset, items: preset.items.map((entry) => entry.id === candidate.id ? { ...entry, label: next, minutes: minutes || undefined } : entry) }));
+    updatePreset(preset.id, (current) => ({ ...current, items: current.items.map((entry) => entry.id === candidateEditor.candidateId ? { ...entry, label: next, minutes: minutes || undefined } : entry) }));
+    setCandidateEditor(null);
+    setNotice("候補を更新しました。");
+  }
+
+  function deleteCandidateFromEditor() {
+    if (!candidateEditor) return;
+    const preset = data.presets.find((entry) => entry.id === candidateEditor.presetId);
+    const candidate = preset?.items.find((entry) => entry.id === candidateEditor.candidateId);
+    if (!preset || !candidate || !window.confirm(`「${candidate.label}」を削除しますか？`)) return;
+    updatePreset(preset.id, (current) => ({ ...current, items: current.items.filter((entry) => entry.id !== candidate.id) }));
+    setCandidateEditor(null);
+    setNotice("候補を削除しました。");
   }
 
   function goHome() {
@@ -527,6 +620,22 @@ export default function Home() {
     setManageId(preset.id);
     setActiveId(preset.id);
     setNewPreset("");
+    setCreatingPreset(false);
+    setCustomPickerOpen(true);
+  }
+
+  function deleteCustomPreset(preset: Preset) {
+    if (!preset.custom || !window.confirm(`「${preset.name}」を削除しますか？`)) return;
+    setData((current) => ({ ...current, presets: current.presets.filter((entry) => entry.id !== preset.id) }));
+    const fallback = data.presets.find((entry) => !entry.journey && entry.id !== preset.id) ?? data.presets[0];
+    setManageId(fallback.id);
+    if (activeId === preset.id) setActiveId(fallback.id);
+    setResult(null);
+    setWheelSet(null);
+    setNewItem("");
+    setCustomPickerOpen(false);
+    setCandidateEditor(null);
+    setNotice("自作プリセットを削除しました。");
   }
 
   function exportBackup() {
@@ -549,6 +658,14 @@ export default function Home() {
         const migrated = ensureRecoveryPreset(parsed);
         setData(migrated);
         setActiveId(migrated.presets[0]?.id ?? "work");
+        setManageId(migrated.presets.find((preset) => !preset.journey)?.id ?? "work");
+        setResult(null);
+        setWheelSet(null);
+        setNewItem("");
+        setNewPreset("");
+        setCandidateEditor(null);
+        setCreatingPreset(false);
+        setCustomPickerOpen(false);
         setNotice("バックアップを読み込みました。");
       }
     } catch {
@@ -565,6 +682,12 @@ export default function Home() {
     setActiveId("work");
     setManageId("work");
     setResult(null);
+    setWheelSet(null);
+    setNewItem("");
+    setNewPreset("");
+    setCandidateEditor(null);
+    setCreatingPreset(false);
+    setCustomPickerOpen(false);
     setTimer(null);
     wakeLock.current?.release().catch(() => undefined);
     wakeLock.current = null;
@@ -685,24 +808,53 @@ export default function Home() {
         )}
 
         {view === "history" && (
-          <div className="view list-view">
+          <div className="view list-view history-view">
             <p className="eyebrow">YOUR STORY</p><h1>これまでの選択。</h1>
-            <section><div className="section-heading"><h2>決定履歴</h2><span>{data.decisions.length}</span></div>{data.decisions.length ? data.decisions.map((entry) => <article className="history-row" key={entry.id}><span className="history-dot" /><div><b>{entry.label}</b><small>{entry.preset} · {new Date(entry.at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</small></div></article>) : <div className="empty-state">まだ履歴はありません。<small>「これに決定」を押すと、ここに残ります。</small></div>}</section>
-            <section><div className="section-heading"><h2>自転車の旅</h2><span>{data.journeys.length}</span></div>{data.journeys.map((journey) => <article className="journey-log" key={journey.id}><div><b>{journey.initialDirection}</b><small>{new Date(journey.startedAt).toLocaleDateString("ja-JP")}</small></div><span>{journey.steps.filter((step) => step.status === "done").length} ミッション達成</span><details><summary>旅の履歴を見る</summary>{journey.steps.map((step) => <p key={step.id}>→ {step.direction}<br /><small>{step.mission} · {step.status === "done" ? "できた！" : "スキップ"}</small></p>)}</details></article>)}</section>
+            <section className="history-stats" aria-labelledby="monthly-stats-title"><h2 id="monthly-stats-title" className="visually-hidden">今月の記録</h2><article className="coral"><span className="stat-icon" aria-hidden="true">▦</span><div><small>今月</small><b>{monthlyStats.decisions}<i>回</i></b></div></article><article className="mint"><span className="stat-icon" aria-hidden="true">♧</span><div><small>旅</small><b>{monthlyStats.journeys}<i>回</i></b></div></article></section>
+            {historyFeed.length === 0 ? <div className="empty-state history-empty">まだ履歴はありません。<small>「これに決定」を押すと、ここに残ります。</small></div> : groupedHistory.map(([group, entries]) => (
+              <section className="history-group" key={group}><h2>{group}</h2><div className="history-timeline">
+                {entries.map((entry) => entry.kind === "decision" ? (() => {
+                  const preset = data.presets.find((item) => item.name === entry.decision.preset);
+                  const date = new Date(entry.at);
+                  const datePrefix = group === "それ以前" ? `${date.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" })} · ` : "";
+                  const time = date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+                  return <button className="history-card" key={entry.id} onClick={() => reuseDecision(entry.decision)} aria-label={`${entry.decision.preset}、${entry.decision.label}、${datePrefix}${time}をもう一度使う`}><span className={`history-mode-icon ${preset?.tone ?? "violet"}`}><PresetGlyph id={preset?.id ?? "custom"} /></span><span className="history-card-copy"><b>{entry.decision.label}</b><small><em>{entry.decision.preset}</em> · {datePrefix}{time}</small></span><span className="history-chevron" aria-hidden="true">›</span></button>;
+                })() : <article className="journey-history-card" key={entry.id}><div className="journey-illustration" aria-hidden="true"><PresetGlyph id="bicycle" /><span>⚑</span></div><div className="journey-history-copy"><small>{new Date(entry.journey.startedAt).toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" })}</small><h3>自転車の旅</h3><b>{entry.journey.initialDirection}</b><p>{entry.journey.steps.filter((step) => step.status === "done").length}ミッション達成</p></div><details><summary>旅の履歴を見る <span>›</span></summary><div>{entry.journey.steps.map((step) => <p key={step.id}>→ {step.direction}<br /><small>{step.mission} · {step.status === "done" ? "できた！" : step.status === "skipped" ? "スキップ" : "未完了"}</small></p>)}</div></details></article>)}
+              </div></section>
+            ))}
           </div>
         )}
 
         {view === "presets" && managedPreset && (
           <div className="view manage-view">
-            <p className="eyebrow">MAKE IT YOURS</p><h1>プリセット編集。</h1>
-            <div className="preset-tabs">{data.presets.filter((preset) => !preset.journey).map((preset) => <button key={preset.id} className={manageId === preset.id ? "active" : ""} onClick={() => setManageId(preset.id)}>{preset.name}</button>)}</div>
-            <button className="use-preset-button" onClick={() => { setActiveId(managedPreset.id); setResult(null); setView("home"); }}>このプリセットを使う <span>→</span></button>
-            <div className="create-row"><input value={newPreset} onChange={(event) => setNewPreset(event.target.value)} placeholder="新しいプリセット名" maxLength={30} /><button onClick={createPreset}>作る</button></div>
-            <section className="candidate-editor"><div className="section-heading"><h2>{managedPreset.name}の候補</h2><span>{managedPreset.items.filter((entry) => entry.enabled).length}/{managedPreset.items.length}</span></div>
-              <div className="create-row"><input value={newItem} onChange={(event) => setNewItem(event.target.value)} onKeyDown={(event) => event.key === "Enter" && addCandidate()} placeholder="候補を追加" maxLength={80} /><button onClick={addCandidate}>追加</button></div>
-              {managedPreset.items.map((entry) => <div className="candidate-row" key={entry.id}><label className="switch"><input type="checkbox" checked={entry.enabled} onChange={(event) => updatePreset(managedPreset.id, (preset) => ({ ...preset, items: preset.items.map((candidate) => candidate.id === entry.id ? { ...candidate, enabled: event.target.checked } : candidate) }))} /><span /></label><button className="candidate-label" onClick={() => editCandidate(entry)} aria-label={`${entry.label}を編集`}>{entry.label}<small>編集</small></button><button aria-label={`${entry.label}を削除`} onClick={() => updatePreset(managedPreset.id, (preset) => ({ ...preset, items: preset.items.filter((candidate) => candidate.id !== entry.id) }))}>×</button></div>)}
-              {managedPreset.custom && <button className="text-button danger-text" onClick={() => { if (window.confirm(`「${managedPreset.name}」を削除しますか？`)) { setData((current) => ({ ...current, presets: current.presets.filter((preset) => preset.id !== managedPreset.id) })); setManageId("work"); setActiveId("work"); } }}>このプリセットを削除</button>}
+            <p className="eyebrow">MAKE IT YOURS</p><h1>じぶん用に整える。</h1>
+            <div className="preset-mode-tabs" role="tablist" aria-label="編集するプリセット">
+              {editablePresets.filter((preset) => !preset.custom && ["work", "play", "solo", "recovery"].includes(preset.id)).map((preset) => <button key={preset.id} role="tab" aria-selected={manageId === preset.id} className={manageId === preset.id ? "active" : ""} onClick={() => { setManageId(preset.id); setCustomPickerOpen(false); }}><PresetGlyph id={preset.id} /><span>{preset.id === "solo" ? "一人" : preset.name}</span></button>)}
+              <button role="tab" aria-selected={Boolean(managedPreset.custom)} className={managedPreset.custom ? "active custom-tab" : "custom-tab"} onClick={() => { setCustomPickerOpen(true); if (customPresets[0]) setManageId(customPresets[0].id); else setCreatingPreset(true); }}><PresetGlyph id="custom" /><span>自作</span></button>
+            </div>
+
+            {customPickerOpen && <section className="custom-preset-picker" aria-label="自作プリセット一覧">
+              <div className="custom-picker-heading"><b>自作プリセット</b><small>{customPresets.length}件</small></div>
+              {customPresets.length ? <div>{customPresets.map((preset) => <button key={preset.id} className={manageId === preset.id ? "active" : ""} onClick={() => setManageId(preset.id)}>{preset.name}<span>→</span></button>)}</div> : <p>まだ自作プリセットがありません。下のボタンから最初のひとつを作れます。</p>}
+            </section>}
+
+            <section className={`preset-summary-card ${managedPreset.tone}`}>
+              <span className="summary-glyph"><PresetGlyph id={managedPreset.id} /></span>
+              <div><small>SELECTED PRESET</small><h2>{managedPreset.name}</h2><p>{managedPreset.description}</p><b>{managedPreset.items.filter((entry) => entry.enabled).length}個の候補が有効</b></div>
+              <button onClick={() => { setActiveId(managedPreset.id); setResult(null); setView("home"); }}>このプリセットを使う <span>→</span></button>
             </section>
+
+            <section className="candidate-editor"><div className="preset-candidate-header"><h2>{managedPreset.name}の候補</h2><span>{managedPreset.items.filter((entry) => entry.enabled).length}/{managedPreset.items.length}</span></div>
+              <div className="candidate-add-row"><input value={newItem} onChange={(event) => setNewItem(event.target.value)} onKeyDown={(event) => event.key === "Enter" && addCandidate()} placeholder={managedPreset.id === "work" || managedPreset.id === "recovery" ? "例：5分 ストレッチする" : "新しい候補を入力"} maxLength={80} aria-label={`${managedPreset.name}へ追加する候補`} /><button onClick={addCandidate} disabled={managedPreset.items.length >= MAX_CANDIDATES}>追加</button></div>
+              <div className="candidate-list">{managedPreset.items.map((entry) => {
+                const displayLabel = entry.minutes ? entry.label.replace(/^(1|3|5|10|15)分\s*/u, "") : entry.label;
+                return <article className={`candidate-row ${entry.enabled ? "" : "disabled"}`} key={entry.id}><label className="switch"><input type="checkbox" checked={entry.enabled} aria-label={`${entry.label}を${entry.enabled ? "抽選対象から外す" : "抽選対象にする"}`} onChange={(event) => updatePreset(managedPreset.id, (preset) => ({ ...preset, items: preset.items.map((candidate) => candidate.id === entry.id ? { ...candidate, enabled: event.target.checked } : candidate) }))} /><span /></label><div className="candidate-copy"><b>{displayLabel}</b>{entry.minutes && <span className="duration-pill">{entry.minutes}分</span>}</div><button className="candidate-edit-button" onClick={() => editCandidate(entry)} aria-label={`${entry.label}を編集`}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 16-1 4 4-1L19 8l-3-3L5 16Zm9-9 3 3" /></svg></button></article>;
+              })}</div>
+              {!managedPreset.items.length && <div className="empty-state">候補がまだありません。<small>上の入力欄から追加してみましょう。</small></div>}
+              {managedPreset.custom && <button className="text-button danger-text delete-preset-button" onClick={() => deleteCustomPreset(managedPreset)}>このプリセットを削除</button>}
+            </section>
+            <button className="create-preset-toggle" onClick={() => setCreatingPreset((current) => !current)}>＋ 新しいプリセットを作る</button>
+            {creatingPreset && <section className="preset-create-panel"><label htmlFor="new-preset-name">プリセット名</label><div><input id="new-preset-name" value={newPreset} onChange={(event) => setNewPreset(event.target.value)} onKeyDown={(event) => event.key === "Enter" && createPreset()} placeholder="例：雨の日" maxLength={30} autoFocus /><button onClick={createPreset} disabled={data.presets.length >= MAX_PRESETS}>作る</button></div><button className="text-button" onClick={() => setCreatingPreset(false)}>キャンセル</button></section>}
           </div>
         )}
 
@@ -718,6 +870,7 @@ export default function Home() {
 
         {view !== "timer" && view !== "journey" && <nav className="bottom-nav" aria-label="メインメニュー"><button className={view === "home" ? "active" : ""} onClick={() => setView("home")}><span>◎</span>ルーレット</button><button className={view === "history" ? "active" : ""} onClick={() => setView("history")}><span>↶</span>履歴</button><button className={view === "presets" ? "active" : ""} onClick={() => setView("presets")}><span>＋</span>プリセット</button></nav>}
         {(view === "timer" || view === "journey") && <button className="floating-back" onClick={goHome} aria-label="ホームへ戻る">←</button>}
+        {candidateEditor && editingCandidate && <div className="editor-backdrop" onKeyDown={(event) => { if (event.key === "Escape") setCandidateEditor(null); }} onMouseDown={(event) => { if (event.currentTarget === event.target) setCandidateEditor(null); }}><section className="candidate-dialog" role="dialog" aria-modal="true" aria-labelledby="candidate-dialog-title"><p className="eyebrow">EDIT CANDIDATE</p><h2 id="candidate-dialog-title">候補を編集</h2><label htmlFor="candidate-edit-input">候補の内容</label><input id="candidate-edit-input" value={candidateEditor.draft} onChange={(event) => setCandidateEditor({ ...candidateEditor, draft: event.target.value })} onKeyDown={(event) => event.key === "Enter" && !event.nativeEvent.isComposing && saveCandidateEdit()} maxLength={80} autoFocus /><div className="dialog-actions"><button className="dialog-save" onClick={saveCandidateEdit}>保存</button><button onClick={() => setCandidateEditor(null)}>キャンセル</button></div><button className="dialog-delete" onClick={deleteCandidateFromEditor}>この候補を削除</button></section></div>}
       </section>
     </main>
   );

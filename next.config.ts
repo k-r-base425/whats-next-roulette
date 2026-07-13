@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   ...(isPagesBuild ? { output: "export" as const } : {}),
   basePath,
   assetPrefix: basePath,
-  trailingSlash: true,
+  trailingSlash: isPagesBuild,
   images: { unoptimized: true },
   ...(isPagesBuild ? { typescript: { tsconfigPath: "tsconfig.pages.json" } } : {}),
 };

@@ -12,6 +12,7 @@
     "db",
     "drizzle",
     "examples",
+    "app/* 2.tsx",
     "worker",
     "vite.config.ts",
     "drizzle.config.ts"
