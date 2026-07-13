@@ -322,6 +322,7 @@ export default function Home() {
   const [timer, setTimer] = useState<{ label: string; endAt: number; duration: number } | null>(null);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
+  const presetTabsRef = useRef<HTMLDivElement>(null);
   const candidateDialogRef = useRef<HTMLElement>(null);
   const candidateReturnFocus = useRef<HTMLElement | null>(null);
   const wakeLock = useRef<WakeLockHandle | null>(null);
@@ -462,6 +463,14 @@ export default function Home() {
     const id = window.setTimeout(() => setLocalDayKey(startOfLocalDay(Date.now())), nextMidnight - now.getTime() + 250);
     return () => window.clearTimeout(id);
   }, [localDayKey]);
+
+  useEffect(() => {
+    if (view !== "presets") return;
+    const frame = window.requestAnimationFrame(() => {
+      presetTabsRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [manageId, view]);
 
   useEffect(() => {
     if (!timer) return;
@@ -1050,7 +1059,7 @@ export default function Home() {
         {view === "presets" && managedPreset && (
           <div className="view manage-view">
             <p className="eyebrow">MAKE IT YOURS</p><h1>じぶん用に整える。</h1>
-            <div className="preset-mode-tabs" role="tablist" aria-label="編集するプリセット">
+            <div ref={presetTabsRef} className="preset-mode-tabs" role="tablist" aria-label="編集するプリセット">
               {editablePresets.filter((preset) => !preset.custom && ["work", "play", "solo", "recovery", "workout", "free"].includes(preset.id)).map((preset) => <button key={preset.id} role="tab" aria-selected={manageId === preset.id} className={manageId === preset.id ? "active" : ""} onClick={() => { setManageId(preset.id); setCustomPickerOpen(false); }}><PresetGlyph id={preset.id} /><span>{preset.id === "solo" ? "一人" : preset.id === "free" ? "フリー" : preset.name}</span></button>)}
               <button role="tab" aria-selected={Boolean(managedPreset.custom)} className={managedPreset.custom ? "active custom-tab" : "custom-tab"} onClick={() => { setCustomPickerOpen(true); if (customPresets[0]) setManageId(customPresets[0].id); else setCreatingPreset(true); }}><PresetGlyph id="custom" /><span>自作</span></button>
             </div>

@@ -179,10 +179,10 @@ h1 em { color: var(--primary-dark); font-style: italic; }
 
 /* Preset workshop */
 .manage-view h1 { margin-bottom: 18px; }
-.preset-mode-tabs { display: flex; gap: 5px; margin: 0 -4px 14px; padding: 3px 4px 5px; overflow-x: auto; scrollbar-width: none; }.preset-mode-tabs::-webkit-scrollbar { display: none; }
-.preset-mode-tabs button { min-width: 62px; min-height: 64px; flex: 0 0 62px; position: relative; display: grid; place-items: center; align-content: center; gap: 3px; border: 2px solid transparent; border-radius: 14px; padding: 5px 2px; background: transparent; cursor: pointer; }
+.preset-mode-tabs { display: flex; gap: 5px; margin: 0 0 14px; padding: 3px 8px 6px; overflow-x: auto; scroll-padding-inline: 8px; scrollbar-width: none; }.preset-mode-tabs::after { content: ""; flex: 0 0 4px; }.preset-mode-tabs::-webkit-scrollbar { display: none; }
+.preset-mode-tabs button { min-width: 62px; min-height: 64px; flex: 0 0 62px; position: relative; display: grid; place-items: center; align-content: center; gap: 3px; border: 2px solid transparent; border-radius: 14px; padding: 5px 2px; background: transparent; scroll-margin-inline: 8px; cursor: pointer; }
 .preset-mode-tabs button svg { width: 25px; height: 25px; }.preset-mode-tabs button span { font-size: 9px; font-weight: 900; white-space: nowrap; }
-.preset-mode-tabs button.active { border-color: var(--ink); background: var(--lemon); box-shadow: 2px 3px 0 var(--ink); transform: translate(-1px,-1px); }
+.preset-mode-tabs button.active { border-color: var(--ink); background: var(--lemon); box-shadow: 0 3px 0 var(--ink); transform: none; }
 .custom-preset-picker { margin: 0 0 12px; padding: 12px; border: 2px solid var(--ink); border-radius: 15px; background: #fff2bd; }
 .custom-picker-heading { display: flex; justify-content: space-between; margin-bottom: 8px; }.custom-picker-heading small { font-weight: 900; }
 .custom-preset-picker > div:last-child { display: grid; gap: 6px; }.custom-preset-picker > div > button { min-height: 44px; display: flex; align-items: center; justify-content: space-between; border: 1px solid var(--ink); border-radius: 10px; padding: 8px 11px; background: white; font-size: 12px; font-weight: 800; cursor: pointer; }.custom-preset-picker > div > button.active { border-width: 2px; background: var(--lemon); }.custom-preset-picker p { margin: 0; font-size: 11px; line-height: 1.5; }
@@ -241,8 +241,8 @@ h1 em { color: var(--primary-dark); font-style: italic; }
 .prompt-avatar { width: 60px; height: 60px; }
 .mode-question h1 { font-family: var(--sans); font-size: clamp(15px, 4.25vw, 18px); font-weight: 950; letter-spacing: -.06em; }
 .mode-question p { margin-top: 6px; color: var(--ink); font-size: 10px; }
-.preset-grid { gap: 7px; }
-.preset-card { min-height: 62px; position: relative; overflow: visible; gap: 0; padding: 0 9px 0 0; border-radius: 11px; background: white; box-shadow: none; transition: background .15s ease, transform .15s ease; }
+.preset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.preset-card { width: 100%; max-width: 100%; min-width: 0; min-height: 62px; position: relative; overflow: visible; gap: 0; padding: 0 9px 0 0; border-radius: 11px; background: white; box-shadow: none; transition: background .15s ease, transform .15s ease; }
 .preset-card:active { transform: scale(.98); }
 .preset-card.selected { border-width: 3px; box-shadow: none; transform: none; }
 .preset-card.selected.coral { background: #fff0eb; }
@@ -258,11 +258,11 @@ h1 em { color: var(--primary-dark); font-style: italic; }
 .preset-card.violet .preset-icon { background: #c9adf6; }
 .preset-card.mint .preset-icon { background: #9de7ce; }
 .preset-card.sky .preset-icon { background: #9bd6fb; color: var(--ink); }
-.preset-copy { padding-left: 11px; }
-.preset-card b { font-size: 14px; font-weight: 950; white-space: nowrap; }
+.preset-copy { min-width: 0; overflow: hidden; padding-left: 11px; }
+.preset-card b { max-width: 100%; overflow: hidden; font-size: 14px; font-weight: 950; text-overflow: ellipsis; white-space: nowrap; }
 .preset-card small { margin-top: 2px; font-size: 9px; font-weight: 800; }
 .preset-arrow { font-size: 28px; font-weight: 400; }
-.free-card { min-height: 68px; padding-right: 12px; background: linear-gradient(90deg,#f2ffbb,#d9f379); }
+.free-card { width: 100%; max-width: 100%; min-height: 68px; padding-right: 12px; background: linear-gradient(90deg,#f2ffbb,#d9f379); }
 .free-card .preset-icon { width: 64px; height: 64px; border-radius: 9px 0 0 9px; background: transparent; }
 .free-card .preset-copy { padding-left: 8px; }
 .free-card b { font-size: 20px; }
@@ -279,12 +279,13 @@ h1 em { color: var(--primary-dark); font-style: italic; }
 .wheel-label i { margin: 0; padding: 1px 6px; font-size: 9px; line-height: 1.1; }
 .empty-wheel-label { text-decoration: none; }
 .empty-wheel-label strong { font-size: 9px; }
-.wheel-label.label-0 { top: 7%; left: 18%; transform: rotate(calc(-1 * var(--rotation))); }
-.wheel-label.label-1 { top: 7%; right: 18%; transform: rotate(calc(-1 * var(--rotation))); }
-.wheel-label.label-2 { top: 39%; right: 0; transform: rotate(calc(-1 * var(--rotation))); }
-.wheel-label.label-3 { right: 18%; bottom: 7%; transform: rotate(calc(-1 * var(--rotation))); }
-.wheel-label.label-4 { bottom: 7%; left: 18%; transform: rotate(calc(-1 * var(--rotation))); }
-.wheel-label.label-5 { top: 39%; left: 0; transform: rotate(calc(-1 * var(--rotation))); }
+.wheel-label { transform-origin: center; }
+.wheel-label.label-0 { top: 23.15%; left: 34.5%; transform: translate(-50%,-50%) rotate(calc(-1 * var(--rotation))); }
+.wheel-label.label-1 { top: 23.15%; left: 65.5%; transform: translate(-50%,-50%) rotate(calc(-1 * var(--rotation))); }
+.wheel-label.label-2 { top: 50%; left: 81%; transform: translate(-50%,-50%) rotate(calc(-1 * var(--rotation))); }
+.wheel-label.label-3 { top: 76.85%; left: 65.5%; transform: translate(-50%,-50%) rotate(calc(-1 * var(--rotation))); }
+.wheel-label.label-4 { top: 76.85%; left: 34.5%; transform: translate(-50%,-50%) rotate(calc(-1 * var(--rotation))); }
+.wheel-label.label-5 { top: 50%; left: 19%; transform: translate(-50%,-50%) rotate(calc(-1 * var(--rotation))); }
 .wheel-center { width: 35%; height: 35%; top: 32.5%; left: 32.5%; gap: 2px; padding: 8px; border-width: 3px; white-space: pre-line; }
 .wheel-center small { min-height: 12px; color: var(--ink); font-size: 10px; letter-spacing: 0; }
 .wheel-center b { font-family: var(--sans); font-size: clamp(15px,4.2vw,20px); font-weight: 950; }
