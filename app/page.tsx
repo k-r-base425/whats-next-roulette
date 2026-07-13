@@ -17,6 +17,8 @@ type Decision = { id: string; preset: string; label: string; at: number };
 type JourneyStep = {
   id: string;
   direction: string;
+  route?: string;
+  theme?: string;
   mission: string;
   status: "active" | "done" | "skipped";
   at: number;
@@ -45,6 +47,7 @@ type AppData = {
 };
 type View = "home" | "history" | "presets" | "settings" | "journey" | "timer";
 type SpinResult = { label: string; minutes?: number } | null;
+type ReelDisplay = { direction: string; route: string; theme: string; mission: string };
 type InstallPromptEvent = Event & { prompt: () => Promise<void> };
 type WakeLockHandle = { release: () => Promise<void> };
 type NavigatorWithWakeLock = Navigator & { wakeLock?: { request: (kind: "screen") => Promise<WakeLockHandle> } };
@@ -115,15 +118,30 @@ const makeDefaults = (): AppData => ({
 
 const STORAGE_KEY = "whats-next-app-v1";
 const directions = ["次に安全に曲がれる場所で左へ", "次に安全に曲がれる場所で右へ", "そのまま直進", "次の信号まで直進", "次の分かれ道は好きな方へ", "景色が気になる方へ進む", "明るく走りやすい道を選ぶ"];
+const routeStyles = ["緑の多い道", "静かな細道", "見晴らしのよい道", "平坦で走りやすい道", "川沿いの道", "にぎやかな通り", "住宅街の道"];
+const journeyThemes = ["景色を探す", "色を探す", "店を探す", "季節を探す", "面白い名前を探す", "建物を眺める", "直感にまかせる"];
 const missions = ["橋があったら渡ってみよう", "緑の多い道を探そう", "青いものを3つ見つけよう", "気になる建物を1つ見つけよう", "知らない公園を探そう", "風が気持ちいい道を選ぼう", "名前が面白い場所を探そう", "お気に入りになりそうな景色を探そう", "安全に停車して旅の写真を1枚撮ろう", "通ったことのない道を1本選ぼう", "坂道を避けるか挑むか直感で決めよう", "パン屋・本屋・喫茶店のどれかを探そう", "季節を感じるものを1つ見つけよう"];
 const cardinals = ["北へ出発", "東へ出発", "南へ出発", "西へ出発"];
+const journeyWheelLabels = ["北へ", "東へ", "冒険", "南へ", "西へ", "直進"];
+const journeyDirectionSegments: Record<string, number> = { "北へ出発": 0, "東へ出発": 1, "南へ出発": 3, "西へ出発": 4 };
 const randomFrom = <T,>(list: T[]): T => list[Math.floor(Math.random() * list.length)];
+const makeWheelItems = (items: Candidate[]): Candidate[] => {
+  if (!items.length) return [];
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  const selected = shuffled.slice(0, 6);
+  while (selected.length < 6) selected.push(shuffled[selected.length % shuffled.length]);
+  return selected;
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object";
 const isShortText = (value: unknown, max = 200): value is string => typeof value === "string" && value.length > 0 && value.length <= max;
 const isCandidate = (value: unknown): value is Candidate => isRecord(value) && isShortText(value.id, 100) && isShortText(value.label) && typeof value.enabled === "boolean" && (value.minutes === undefined || (typeof value.minutes === "number" && [1, 3, 5, 10, 15].includes(value.minutes)));
 const isPreset = (value: unknown): value is Preset => isRecord(value) && isShortText(value.id, 100) && isShortText(value.name, 50) && isShortText(value.icon, 8) && ["coral", "lemon", "violet", "mint", "sky"].includes(String(value.tone)) && isShortText(value.description) && Array.isArray(value.items) && value.items.length <= 500 && value.items.every(isCandidate);
-const isStep = (value: unknown): value is JourneyStep => isRecord(value) && isShortText(value.id, 100) && isShortText(value.direction) && isShortText(value.mission) && ["active", "done", "skipped"].includes(String(value.status)) && typeof value.at === "number";
+const isStep = (value: unknown): value is JourneyStep => isRecord(value) && isShortText(value.id, 100) && isShortText(value.direction) && (value.route === undefined || isShortText(value.route)) && (value.theme === undefined || isShortText(value.theme)) && isShortText(value.mission) && ["active", "done", "skipped"].includes(String(value.status)) && typeof value.at === "number";
 const isDecision = (value: unknown): value is Decision => isRecord(value) && isShortText(value.id, 100) && isShortText(value.preset, 50) && isShortText(value.label) && typeof value.at === "number";
 const isJourneyLog = (value: unknown): value is JourneyLog => isRecord(value) && isShortText(value.id, 100) && typeof value.startedAt === "number" && typeof value.endedAt === "number" && isShortText(value.initialDirection, 50) && Array.isArray(value.steps) && value.steps.length <= 1000 && value.steps.every(isStep);
 const isActiveJourney = (value: unknown): value is Journey => isRecord(value) && typeof value.startedAt === "number" && (value.duration === null || [30, 60, 90].includes(Number(value.duration))) && isShortText(value.initialDirection, 50) && Array.isArray(value.steps) && value.steps.length <= 1000 && value.steps.every(isStep) && typeof value.turnaroundShown === "boolean";
@@ -145,31 +163,35 @@ export default function Home() {
   const [result, setResult] = useState<SpinResult>(null);
   const [spinning, setSpinning] = useState(false);
   const [rotation, setRotation] = useState(0);
+  const [wheelSet, setWheelSet] = useState<{ presetId: string; items: Candidate[] } | null>(null);
   const [notice, setNotice] = useState("");
   const [manageId, setManageId] = useState("work");
   const [newItem, setNewItem] = useState("");
   const [newPreset, setNewPreset] = useState("");
   const [journeyDuration, setJourneyDuration] = useState<number | null>(30);
+  const [journeySpinning, setJourneySpinning] = useState(false);
+  const [reelDisplay, setReelDisplay] = useState<ReelDisplay>({ direction: directions[0], route: routeStyles[0], theme: journeyThemes[0], mission: missions[0] });
   const [remaining, setRemaining] = useState(0);
   const [timer, setTimer] = useState<{ label: string; endAt: number; duration: number } | null>(null);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const wakeLock = useRef<WakeLockHandle | null>(null);
   const audioContext = useRef<AudioContext | null>(null);
+  const reelInterval = useRef<number | null>(null);
+  const reelTimeout = useRef<number | null>(null);
 
   const activePreset = data.presets.find((preset) => preset.id === activeId) ?? data.presets[0];
   const managedPreset = data.presets.find((preset) => preset.id === manageId) ?? data.presets[0];
   const enabledItems = useMemo(() => activePreset?.items.filter((entry) => entry.enabled) ?? [], [activePreset]);
+  const previewWheelItems = useMemo(() => enabledItems.length ? Array.from({ length: 6 }, (_, index) => enabledItems[Math.floor(index * enabledItems.length / 6)]) : [], [enabledItems]);
+  const visibleWheelItems = wheelSet?.presetId === activePreset?.id ? wheelSet.items : previewWheelItems;
   const wheelLabels = useMemo(() => {
-    if (activePreset?.journey) return ["北へ", "右へ", "冒険", "南へ", "左へ", "直進"];
-    const count = Math.min(6, enabledItems.length);
-    if (!count) return [];
-    return Array.from({ length: count }, (_, index) => {
-      const entry = enabledItems[Math.floor(index * enabledItems.length / count)];
-      const shortLabel = entry.label.replace(/する$|してみる$|を楽しむ$/u, "");
+    if (activePreset?.journey) return journeyWheelLabels;
+    return visibleWheelItems.map((entry) => {
+      const shortLabel = entry.label;
       return shortLabel.length > 9 ? `${shortLabel.slice(0, 8)}…` : shortLabel;
     });
-  }, [activePreset, enabledItems]);
+  }, [activePreset, visibleWheelItems]);
   const speak = useCallback((text: string) => {
     if (!data.speech || !("speechSynthesis" in window)) return;
     window.speechSynthesis.cancel();
@@ -215,6 +237,11 @@ export default function Home() {
       queueMicrotask(() => setNotice("保存できませんでした。端末の空き容量を確認してください。"));
     }
   }, [data, hydrated]);
+
+  useEffect(() => () => {
+    if (reelInterval.current) window.clearInterval(reelInterval.current);
+    if (reelTimeout.current) window.clearTimeout(reelTimeout.current);
+  }, []);
 
   useEffect(() => {
     if (!timer) return;
@@ -265,8 +292,23 @@ export default function Home() {
 
   function spin() {
     if (!activePreset) return;
+    const rotateToSegment = (segment: number) => setRotation((current) => {
+      const currentAngle = ((current % 360) + 360) % 360;
+      const targetAngle = (360 - segment * 60) % 360;
+      const alignment = (targetAngle - currentAngle + 360) % 360;
+      return current + 720 + alignment;
+    });
     if (activePreset.journey) {
-      setView("journey");
+      setSpinning(true);
+      setResult(null);
+      const chosen = randomFrom(cardinals);
+      const segment = journeyDirectionSegments[chosen];
+      rotateToSegment(segment);
+      window.setTimeout(() => {
+        setResult({ label: chosen });
+        setSpinning(false);
+        speak(chosen);
+      }, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 80 : 850);
       return;
     }
     if (!enabledItems.length) {
@@ -275,8 +317,11 @@ export default function Home() {
     }
     setSpinning(true);
     setResult(null);
-    setRotation((current) => current + 900 + Math.floor(Math.random() * 360));
-    const chosen = randomFrom(enabledItems);
+    const nextWheelItems = makeWheelItems(enabledItems);
+    const segment = Math.floor(Math.random() * 6);
+    const chosen = nextWheelItems[segment];
+    setWheelSet({ presetId: activePreset.id, items: nextWheelItems });
+    rotateToSegment(segment);
     const workMinutes = activePreset.id === "work" ? Number(chosen.label.match(/^(1|3|5|10|15)分/)?.[1] ?? 0) : chosen.minutes;
     window.setTimeout(() => {
       setResult({ label: chosen.label, minutes: workMinutes || undefined });
@@ -307,38 +352,58 @@ export default function Home() {
     setView("timer");
   }
 
-  function startJourney() {
-    const initialDirection = randomFrom(cardinals);
-    const firstStep: JourneyStep = { id: uid(), direction: randomFrom(directions), mission: randomFrom(missions), status: "active", at: Date.now() };
-    setData((current) => ({ ...current, activeJourney: { startedAt: Date.now(), duration: journeyDuration, initialDirection, steps: [firstStep], turnaroundShown: false } }));
-    speak(`${initialDirection}。${firstStep.direction}。${firstStep.mission}`);
+  function makeJourneyStep(previous?: JourneyStep, missionOnly = false): JourneyStep {
+    return {
+      id: uid(),
+      direction: missionOnly && previous ? previous.direction : randomFrom(directions),
+      route: missionOnly && previous ? previous.route : randomFrom(routeStyles),
+      theme: missionOnly && previous ? previous.theme : randomFrom(journeyThemes),
+      mission: randomFrom(missions),
+      status: "active",
+      at: Date.now(),
+    };
   }
 
-  function drawJourneyStep(missionOnly = false) {
+  function animateJourneyStep(step: JourneyStep) {
+    if (reelInterval.current) window.clearInterval(reelInterval.current);
+    if (reelTimeout.current) window.clearTimeout(reelTimeout.current);
+    setJourneySpinning(true);
+    reelInterval.current = window.setInterval(() => setReelDisplay({
+      direction: randomFrom(directions), route: randomFrom(routeStyles), theme: randomFrom(journeyThemes), mission: randomFrom(missions),
+    }), 90);
+    const delay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 80 : 1250;
+    reelTimeout.current = window.setTimeout(() => {
+      if (reelInterval.current) window.clearInterval(reelInterval.current);
+      setReelDisplay({ direction: step.direction, route: step.route ?? routeStyles[0], theme: step.theme ?? journeyThemes[0], mission: step.mission });
+      setJourneySpinning(false);
+      speak(`${step.direction}。${step.route ?? ""}。${step.theme ?? ""}。${step.mission}`);
+    }, delay);
+  }
+
+  function openJourney() {
+    setView("journey");
+  }
+
+  function startJourney() {
+    const initialDirection = result && cardinals.includes(result.label) ? result.label : randomFrom(cardinals);
+    const firstStep = makeJourneyStep();
+    setData((current) => ({ ...current, activeJourney: { startedAt: Date.now(), duration: journeyDuration, initialDirection, steps: [firstStep], turnaroundShown: false } }));
+    animateJourneyStep(firstStep);
+  }
+
+  function drawJourneyStep(status: "done" | "skipped", missionOnly = false) {
+    let nextStep: JourneyStep | null = null;
     setData((current) => {
       if (!current.activeJourney) return current;
       const steps = [...current.activeJourney.steps];
       const last = steps[steps.length - 1];
-      const next: JourneyStep = {
-        id: uid(),
-        direction: missionOnly && last ? last.direction : randomFrom(directions),
-        mission: randomFrom(missions),
-        status: "active",
-        at: Date.now(),
-      };
-      if (last?.status === "active") steps[steps.length - 1] = { ...last, status: "skipped" };
+      const next = makeJourneyStep(last, missionOnly);
+      nextStep = next;
+      if (last?.status === "active") steps[steps.length - 1] = { ...last, status };
       steps.push(next);
-      queueMicrotask(() => speak(`${next.direction}。${next.mission}`));
       return { ...current, activeJourney: { ...current.activeJourney, steps } };
     });
-  }
-
-  function completeStep(status: "done" | "skipped") {
-    setData((current) => {
-      if (!current.activeJourney) return current;
-      const steps = current.activeJourney.steps.map((step, index, all) => index === all.length - 1 ? { ...step, status } : step);
-      return { ...current, activeJourney: { ...current.activeJourney, steps } };
-    });
+    queueMicrotask(() => { if (nextStep) animateJourneyStep(nextStep); });
   }
 
   function finishJourney() {
@@ -440,6 +505,19 @@ export default function Home() {
   }
 
   const currentJourneyStep = data.activeJourney?.steps.at(-1);
+  const settledReels: ReelDisplay = currentJourneyStep ? {
+    direction: currentJourneyStep.direction,
+    route: currentJourneyStep.route ?? "自由な道",
+    theme: currentJourneyStep.theme ?? "直感にまかせる",
+    mission: currentJourneyStep.mission,
+  } : reelDisplay;
+  const visibleReels = journeySpinning ? reelDisplay : settledReels;
+  const journeyReels = [
+    { key: "direction", label: "方角", value: visibleReels.direction, tone: "mint" },
+    { key: "route", label: "道", value: visibleReels.route, tone: "lemon" },
+    { key: "theme", label: "テーマ", value: visibleReels.theme, tone: "violet" },
+    { key: "mission", label: "ミッション", value: visibleReels.mission, tone: "coral" },
+  ] as const;
   const timerMinutes = Math.floor(remaining / 60).toString().padStart(2, "0");
   const timerSeconds = (remaining % 60).toString().padStart(2, "0");
 
@@ -470,19 +548,19 @@ export default function Home() {
 
             <section className={`wheel-stage ${activePreset.tone}`}>
               <div className="wheel-pointer">▼</div>
-              <button className={`wheel ${spinning ? "is-spinning" : ""}`} style={{ "--rotation": `${rotation}deg` } as React.CSSProperties} onClick={spin} disabled={spinning} aria-label={activePreset.journey ? "旅モードを開く" : "ルーレットを回す"}>
+              <button className={`wheel ${spinning ? "is-spinning" : ""}`} style={{ "--rotation": `${rotation}deg` } as React.CSSProperties} onClick={spin} disabled={spinning} aria-label={activePreset.journey ? "旅の出発方角を決める" : "ルーレットを回す"}>
                 {wheelLabels.map((label, index) => <span className={`wheel-label label-${index}`} key={`${label}-${index}`}>{label}</span>)}
                 <span className="wheel-center"><small>{activePreset.name}</small><b>{spinning ? "選んでいます…" : result?.label ?? (activePreset.journey ? "旅へ出よう" : "何をする？")}</b></span>
               </button>
               <p className="preset-description">{activePreset.description}</p>
             </section>
 
-            <button className="primary-button spin-button" onClick={spin} disabled={spinning}>{activePreset.journey ? "旅モードをはじめる" : spinning ? "選んでいます…" : "ルーレットを回す"}<span>↗</span></button>
+            <button className="primary-button spin-button" onClick={activePreset.journey && result ? openJourney : spin} disabled={spinning}>{activePreset.journey ? (spinning ? "方角を選んでいます…" : result ? "旅モードを開く" : "旅のルーレットを回す") : spinning ? "選んでいます…" : "ルーレットを回す"}<span>↗</span></button>
             {result && !spinning && (
               <section className="result-card" aria-live="polite">
                 <div><span className="result-kicker">TODAY&apos;S PICK</span><h2>{result.label}</h2></div>
                 <div className="result-actions">
-                  <button onClick={acceptResult}>これに決定</button><button onClick={spin}>もう一度</button>
+                  {activePreset.journey ? <button onClick={openJourney}>この方角で旅へ</button> : <button onClick={acceptResult}>これに決定</button>}<button onClick={spin}>もう一度</button>
                   {result.minutes && <button className="timer-button" onClick={startTimer}>{result.minutes}分タイマーを開始</button>}
                 </div>
               </section>
@@ -506,14 +584,20 @@ export default function Home() {
               <>
                 <div className="safety-card"><b>安全に楽しむために</b><p>操作と画面の確認は、必ず安全な場所に停車してから。交通ルールと道路状況を最優先にしてください。</p><small>GPSや位置情報は使用しません。</small></div>
                 <fieldset className="duration-picker"><legend>予定時間を選ぶ</legend>{[30, 60, 90, null].map((duration) => <button key={duration ?? "free"} className={journeyDuration === duration ? "active" : ""} onClick={() => setJourneyDuration(duration)}>{duration ? `${duration}分` : "時間無制限"}</button>)}</fieldset>
-                <button className="primary-button" onClick={startJourney}>最初のカードを引く <span>↗</span></button>
+                <button className="primary-button" onClick={startJourney}>4つの旅リールを回す <span>↗</span></button>
               </>
             ) : (
               <>
-                <div className="journey-status"><span>出発</span><b>{data.activeJourney.initialDirection}</b><small>{data.activeJourney.steps.length}枚目のカード</small></div>
+                <div className="journey-status"><span>出発</span><b>{data.activeJourney.initialDirection}</b><small>{data.activeJourney.steps.length}回目</small></div>
                 {data.activeJourney.turnaroundShown && <div className="turnaround">そろそろ折り返し。安全な帰り道を選ぼう。</div>}
-                {currentJourneyStep && <div className="adventure-cards" aria-live="polite"><article className="direction-card"><span>DIRECTION</span><h2>{currentJourneyStep.direction}</h2></article><article className="mission-card"><span>MISSION</span><h2>{currentJourneyStep.mission}</h2></article></div>}
-                <div className="journey-actions"><button className="primary-button" onClick={() => { completeStep("done"); window.setTimeout(() => drawJourneyStep(), 0); }}>できた！ 次の冒険へ</button><button onClick={() => { completeStep("skipped"); window.setTimeout(() => drawJourneyStep(), 0); }}>今回はスキップ</button><button onClick={() => drawJourneyStep(true)}>ミッションだけ引き直す</button></div>
+                <section className={`reel-machine ${journeySpinning ? "is-spinning" : ""}`} aria-label="旅の4連ルーレット" aria-busy={journeySpinning}>
+                  <div className="reel-machine-header"><span>TRIP SLOT 04</span><b>{journeySpinning ? "ぐるぐる選択中…" : "次の冒険が決まりました"}</b></div>
+                  <div className="reel-grid" aria-live="polite">
+                    {journeyReels.map((reel, index) => <article className={`journey-reel ${reel.tone} reel-${index}`} key={reel.key}><span>{reel.label}</span><div className="reel-window"><div className="reel-strip"><i>{reel.value}</i><b>{reel.value}</b><i>{reel.value}</i></div></div></article>)}
+                  </div>
+                </section>
+                {currentJourneyStep && !journeySpinning && <div className="mission-outcome"><span>NEXT MISSION</span><h2>{currentJourneyStep.mission}</h2><p>{currentJourneyStep.direction} · {currentJourneyStep.route ?? "自由な道"} · {currentJourneyStep.theme ?? "直感にまかせる"}</p></div>}
+                <div className="journey-actions"><button className="primary-button" disabled={journeySpinning} onClick={() => drawJourneyStep("done")}>できた！ 次を回す <span>↗</span></button><button disabled={journeySpinning} onClick={() => drawJourneyStep("skipped")}>スキップして次を回す</button><button disabled={journeySpinning} onClick={() => drawJourneyStep("skipped", true)}>ミッションだけ回し直す</button></div>
                 <button className="text-button danger-text" onClick={finishJourney}>旅を終える</button>
                 <p className="safety-note">必ず停車して操作してください。危険・通行禁止の指示は迷わず引き直しましょう。</p>
               </>

@@ -112,8 +112,26 @@ h1 em { color: var(--primary-dark); font-style: italic; }
 .safety-card { padding: 18px; border: 2px solid var(--ink); border-radius: 18px; background: #fff0a8; box-shadow: 5px 6px 0 var(--ink); }.safety-card b { font: 700 19px var(--display); }.safety-card p { font-size: 13px; line-height: 1.65; }.safety-card small { color: var(--muted); }
 .duration-picker { margin: 25px 0 18px; padding: 0; border: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }.duration-picker legend { margin-bottom: 11px; font-weight: 900; }.duration-picker button { min-height: 48px; border: 1px solid #878b95; border-radius: 13px; background: white; font-weight: 800; cursor: pointer; }.duration-picker button.active { border: 2px solid var(--ink); background: var(--mint); box-shadow: 2px 3px 0 var(--ink); }
 .journey-status { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; margin-bottom: 16px; padding: 12px 14px; border-radius: 14px; background: var(--ink); color: white; }.journey-status span, .journey-status small { font-size: 10px; }.journey-status b { font: 700 20px var(--display); }.turnaround { margin-bottom: 12px; padding: 12px; border-radius: 12px; background: #fff0a8; font-size: 12px; font-weight: 800; }
-.adventure-cards { display: grid; gap: 12px; }.adventure-cards article { min-height: 160px; padding: 20px; border: 2px solid var(--ink); border-radius: 23px; box-shadow: 6px 7px 0 var(--ink); display: flex; flex-direction: column; justify-content: space-between; }.adventure-cards article span { font-size: 10px; font-weight: 900; letter-spacing: .17em; }.adventure-cards h2 { margin: 14px 0 0; font: 700 25px/1.2 var(--display); }.direction-card { background: var(--mint); transform: rotate(-1deg); }.mission-card { background: #d8ccff; transform: rotate(1deg); }
-.journey-actions { display: grid; gap: 9px; margin-top: 20px; }.journey-actions > button:not(.primary-button) { min-height: 48px; border: 1px solid var(--ink); border-radius: 14px; background: white; font-weight: 800; cursor: pointer; }.safety-note { margin-top: 18px; padding: 10px; border-left: 4px solid var(--primary); font-size: 11px; line-height: 1.6; color: var(--muted); }
+.reel-machine { overflow: hidden; border: 2px solid var(--ink); border-radius: 22px; background: var(--ink); }
+.reel-machine-header { min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; color: white; }
+.reel-machine-header span { color: var(--lemon); font-size: 9px; font-weight: 900; letter-spacing: .15em; }
+.reel-machine-header b { font-size: 11px; text-align: right; }
+.reel-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; padding: 2px; background: var(--ink); }
+.journey-reel { min-width: 0; padding: 7px 4px 5px; background: white; text-align: center; }
+.journey-reel:first-child { border-radius: 14px 0 0 14px; }.journey-reel:last-child { border-radius: 0 14px 14px 0; }
+.journey-reel > span { display: block; height: 20px; font-size: 9px; font-weight: 900; letter-spacing: .08em; }
+.journey-reel.mint > span { color: #08734e; }.journey-reel.lemon > span { color: #8a5900; }.journey-reel.violet > span { color: #5a3fc0; }.journey-reel.coral > span { color: #a83400; }
+.reel-window { height: 142px; overflow: hidden; position: relative; border: 1px solid rgba(17,24,39,.38); border-radius: 10px; background: var(--paper); }
+.reel-window::before, .reel-window::after { content: ""; position: absolute; z-index: 2; left: 0; right: 0; height: 28px; pointer-events: none; }
+.reel-window::before { top: 0; background: linear-gradient(var(--paper), transparent); }.reel-window::after { bottom: 0; background: linear-gradient(transparent, var(--paper)); }
+.reel-strip { height: 426px; transform: translateY(-142px); }
+.reel-strip i, .reel-strip b { height: 142px; display: grid; place-items: center; padding: 8px 5px; overflow-wrap: anywhere; font-style: normal; font-size: 11px; line-height: 1.45; }
+.reel-strip i { opacity: .28; }.reel-strip b { position: relative; font-weight: 900; }.reel-strip b::before, .reel-strip b::after { content: ""; position: absolute; left: 4px; right: 4px; height: 2px; background: var(--primary); }.reel-strip b::before { top: 6px; }.reel-strip b::after { bottom: 6px; }
+.reel-machine.is-spinning .reel-strip { animation: reel-roll .42s linear infinite; }
+.reel-machine.is-spinning .reel-1 .reel-strip { animation-duration: .35s; }.reel-machine.is-spinning .reel-2 .reel-strip { animation-duration: .29s; }.reel-machine.is-spinning .reel-3 .reel-strip { animation-duration: .24s; }
+.mission-outcome { margin-top: 12px; padding: 16px; border: 2px solid var(--ink); border-radius: 18px; background: #d8ccff; }
+.mission-outcome span { color: #5134bb; font-size: 9px; font-weight: 900; letter-spacing: .16em; }.mission-outcome h2 { margin: 6px 0 9px; font: 700 23px/1.2 var(--display); }.mission-outcome p { margin: 0; font-size: 11px; line-height: 1.55; color: #333948; }
+.journey-actions { display: grid; gap: 9px; margin-top: 16px; }.journey-actions > button:not(.primary-button) { min-height: 48px; border: 1px solid var(--ink); border-radius: 14px; background: white; font-weight: 800; cursor: pointer; }.journey-actions button:disabled { opacity: .55; cursor: wait; }.safety-note { margin-top: 18px; padding: 10px; border-left: 4px solid var(--primary); font-size: 11px; line-height: 1.6; color: var(--muted); }
 .floating-back { position: fixed; z-index: 30; left: max(calc(50% - 195px), 12px); bottom: 18px; width: 52px; height: 52px; border: 2px solid var(--ink); border-radius: 50%; background: white; box-shadow: 3px 4px 0 var(--ink); font-size: 20px; cursor: pointer; }
 
 .timer-view { min-height: calc(100dvh - 150px); display: flex; flex-direction: column; justify-content: center; text-align: center; }.timer-view .eyebrow { text-align: center; }.timer-clock { width: 100%; margin: 30px auto; display: flex; align-items: center; justify-content: center; gap: 7px; font: 700 clamp(62px, 19vw, 88px)/1 var(--display); color: var(--primary-dark); }.timer-clock i { font-style: normal; animation: blink 1s steps(1) infinite; }.timer-view h2 { margin: 0; font: 700 23px var(--display); }.timer-view p { font-size: 12px; color: var(--muted); }.secondary-button { min-height: 52px; margin-top: 24px; border: 2px solid var(--ink); border-radius: 15px; background: white; font-weight: 900; cursor: pointer; }
@@ -123,6 +141,7 @@ h1 em { color: var(--primary-dark); font-style: italic; }
 
 @keyframes enter { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
 @keyframes blink { 50% { opacity: .3; } }
+@keyframes reel-roll { from { transform: translateY(-26px); } to { transform: translateY(-284px); } }
 
 @media (min-width: 700px) {
   .app-shell { padding: 28px 0; }
