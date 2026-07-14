@@ -1,6 +1,17 @@
 "use client";
 
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  JOURNEY_WHEEL_LABELS,
+  chooseJourneyStart,
+  chooseWheelSegment,
+  findJourneyStartByInstruction,
+  getNextWheelRotation,
+  makeWheelSlots,
+  pickFromUnitRandom,
+  randomValuesNeededForShuffle,
+  type JourneySegment,
+} from "@/lib/roulette";
 
 type Candidate = { id: string; label: string; enabled: boolean; minutes?: number };
 type Preset = {
@@ -53,6 +64,13 @@ type CandidateEditor = { presetId: string; candidateId: string; draft: string } 
 type InstallPromptEvent = Event & { prompt: () => Promise<void> };
 type WakeLockHandle = { released: boolean; release: () => Promise<void> };
 type NavigatorWithWakeLock = Navigator & { wakeLock?: { request: (kind: "screen") => Promise<WakeLockHandle> } };
+type RandomChannel = "wheel-shuffle" | "wheel-segment" | "journey-start" | "journey-direction" | "journey-route" | "journey-theme" | "journey-mission" | "journey-reel-animation";
+
+declare global {
+  interface Window {
+    __WHATS_NEXT_TEST_RANDOM__?: (channel: RandomChannel) => number;
+  }
+}
 
 const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const item = (label: string, minutes?: number): Candidate => ({ id: uid(), label, enabled: true, minutes });
@@ -196,10 +214,13 @@ const directions = ["次に安全に曲がれる場所で左へ", "次に安全�
 const routeStyles = ["緑の多い道", "静かな細道", "見晴らしのよい道", "平坦で走りやすい道", "川沿いの道", "にぎやかな通り", "住宅街の道"];
 const journeyThemes = ["景色を探す", "色を探す", "店を探す", "季節を探す", "面白い名前を探す", "建物を眺める", "直感にまかせる"];
 const missions = ["橋があったら渡ってみよう", "緑の多い道を探そう", "青いものを3つ見つけよう", "気になる建物を1つ見つけよう", "知らない公園を探そう", "風が気持ちいい道を選ぼう", "名前が面白い場所を探そう", "お気に入りになりそうな景色を探そう", "安全に停車して旅の写真を1枚撮ろう", "通ったことのない道を1本選ぼう", "坂道を避けるか挑むか直感で決めよう", "パン屋・本屋・喫茶店のどれかを探そう", "季節を感じるものを1つ見つけよう"];
-const cardinals = ["北へ出発", "東へ出発", "南へ出発", "西へ出発"];
-const journeyWheelLabels = ["北へ", "東へ", "南へ", "冒険", "西へ", "直進"];
-const journeyDirectionSegments: Record<string, number> = { "北へ出発": 0, "東へ出発": 1, "南へ出発": 2, "西へ出発": 4 };
-const randomFrom = <T,>(list: T[]): T => list[Math.floor(Math.random() * list.length)];
+const randomValue = (channel: RandomChannel): number => {
+  if (process.env.NEXT_PUBLIC_E2E === "1" && typeof window !== "undefined" && window.__WHATS_NEXT_TEST_RANDOM__) {
+    return window.__WHATS_NEXT_TEST_RANDOM__(channel);
+  }
+  return Math.random();
+};
+const randomFrom = <T,>(list: readonly T[], channel: RandomChannel): T => pickFromUnitRandom(list, randomValue(channel));
 const startOfLocalDay = (time: number) => { const date = new Date(time); return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime(); };
 const historyGroup = (time: number, now = Date.now()) => {
   const today = startOfLocalDay(now);
@@ -211,15 +232,8 @@ const historyGroup = (time: number, now = Date.now()) => {
   return "それ以前";
 };
 const makeWheelItems = (items: Candidate[]): Candidate[] => {
-  if (!items.length) return [];
-  const shuffled = [...items];
-  for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
-  }
-  const selected = shuffled.slice(0, 6);
-  while (selected.length < 6) selected.push(shuffled[selected.length % shuffled.length]);
-  return selected;
+  const randomValues = Array.from({ length: randomValuesNeededForShuffle(items.length) }, () => randomValue("wheel-shuffle"));
+  return makeWheelSlots(items, randomValues);
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object";
@@ -306,6 +320,7 @@ export default function Home() {
   const [result, setResult] = useState<SpinResult>(null);
   const [spinning, setSpinning] = useState(false);
   const [rotation, setRotation] = useState(0);
+  const [stopIndex, setStopIndex] = useState<number | null>(null);
   const [wheelSet, setWheelSet] = useState<{ presetId: string; items: Candidate[] } | null>(null);
   const [notice, setNotice] = useState("");
   const [manageId, setManageId] = useState("work");
@@ -363,7 +378,7 @@ export default function Home() {
     ? data.presets.find((preset) => preset.id === candidateEditor.presetId)?.items.find((entry) => entry.id === candidateEditor.candidateId)
     : undefined;
   const wheelLabels = useMemo(() => {
-    if (activePreset?.journey) return journeyWheelLabels;
+    if (activePreset?.journey) return JOURNEY_WHEEL_LABELS;
     return visibleWheelItems.map((entry) => {
       const shortLabel = activePreset?.id === "workout" ? entry.label.replace(/^3分\s*/u, "") : entry.label;
       return shortLabel.length > 9 ? `${shortLabel.slice(0, 8)}…` : shortLabel;
@@ -530,23 +545,20 @@ export default function Home() {
 
   function spin() {
     if (!activePreset) return;
-    const rotateToSegment = (segment: number) => setRotation((current) => {
-      const currentAngle = ((current % 360) + 360) % 360;
-      const targetAngle = (390 - segment * 60) % 360;
-      const alignment = (targetAngle - currentAngle + 360) % 360;
-      return current + 720 + alignment;
-    });
+    const rotateToSegment = (segment: JourneySegment) => {
+      setStopIndex(segment);
+      setRotation((current) => getNextWheelRotation(current, segment));
+    };
     if (activePreset.journey) {
       setSpinning(true);
       setResult(null);
-      const chosen = randomFrom(cardinals);
-      const segment = journeyDirectionSegments[chosen];
-      rotateToSegment(segment);
+      const chosen = chooseJourneyStart(randomValue("journey-start"));
+      rotateToSegment(chosen.segment);
       spinTimeout.current = window.setTimeout(() => {
-        setResult({ label: chosen });
+        setResult({ label: chosen.instruction });
         setSpinning(false);
         spinTimeout.current = null;
-        speak(chosen);
+        speak(chosen.instruction);
       }, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 80 : 850);
       return;
     }
@@ -557,7 +569,7 @@ export default function Home() {
         setNotice("まずは6つの枠から、1つ以上の内容を入力してオンにしよう。");
         return;
       }
-      const segment = randomFrom(enabledSegments);
+      const segment = pickFromUnitRandom(enabledSegments, randomValue("wheel-segment")) as JourneySegment;
       const chosen = freeItems[segment];
       setSpinning(true);
       setResult(null);
@@ -578,7 +590,7 @@ export default function Home() {
     setSpinning(true);
     setResult(null);
     const nextWheelItems = makeWheelItems(enabledItems);
-    const segment = Math.floor(Math.random() * 6);
+    const segment = chooseWheelSegment(randomValue("wheel-segment"));
     const chosen = nextWheelItems[segment];
     setWheelSet({ presetId: activePreset.id, items: nextWheelItems });
     rotateToSegment(segment);
@@ -606,6 +618,7 @@ export default function Home() {
     }
     setActiveId(preset.id);
     setResult({ label: candidate.label, minutes: candidate.minutes });
+    setStopIndex(null);
     setView("home");
   }
 
@@ -625,10 +638,10 @@ export default function Home() {
   function makeJourneyStep(previous?: JourneyStep, missionOnly = false): JourneyStep {
     return {
       id: uid(),
-      direction: missionOnly && previous ? previous.direction : randomFrom(directions),
-      route: missionOnly && previous ? previous.route : randomFrom(routeStyles),
-      theme: missionOnly && previous ? previous.theme : randomFrom(journeyThemes),
-      mission: randomFrom(missions),
+      direction: missionOnly && previous ? previous.direction : randomFrom(directions, "journey-direction"),
+      route: missionOnly && previous ? previous.route : randomFrom(routeStyles, "journey-route"),
+      theme: missionOnly && previous ? previous.theme : randomFrom(journeyThemes, "journey-theme"),
+      mission: randomFrom(missions, "journey-mission"),
       status: "active",
       at: Date.now(),
     };
@@ -639,7 +652,7 @@ export default function Home() {
     if (reelTimeout.current) window.clearTimeout(reelTimeout.current);
     setJourneySpinning(true);
     reelInterval.current = window.setInterval(() => setReelDisplay({
-      direction: randomFrom(directions), route: randomFrom(routeStyles), theme: randomFrom(journeyThemes), mission: randomFrom(missions),
+      direction: randomFrom(directions, "journey-reel-animation"), route: randomFrom(routeStyles, "journey-reel-animation"), theme: randomFrom(journeyThemes, "journey-reel-animation"), mission: randomFrom(missions, "journey-reel-animation"),
     }), 90);
     const delay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 80 : 1250;
     reelTimeout.current = window.setTimeout(() => {
@@ -655,7 +668,8 @@ export default function Home() {
   }
 
   function startJourney() {
-    const initialDirection = result && cardinals.includes(result.label) ? result.label : randomFrom(cardinals);
+    const selectedStart = result ? findJourneyStartByInstruction(result.label) : undefined;
+    const initialDirection = (selectedStart ?? chooseJourneyStart(randomValue("journey-start"))).instruction;
     const firstStep = makeJourneyStep();
     setData((current) => ({ ...current, activeJourney: { startedAt: Date.now(), duration: journeyDuration, initialDirection, steps: [firstStep], turnaroundShown: false } }));
     animateJourneyStep(firstStep);
@@ -846,6 +860,7 @@ export default function Home() {
     setManageId(fallback.id);
     if (activeId === preset.id) setActiveId(fallback.id);
     setResult(null);
+    setStopIndex(null);
     setWheelSet(null);
     setNewItem("");
     setCustomPickerOpen(false);
@@ -931,6 +946,13 @@ export default function Home() {
   ] as const;
   const timerMinutes = Math.floor(remaining / 60).toString().padStart(2, "0");
   const timerSeconds = (remaining % 60).toString().padStart(2, "0");
+  const spinButtonLabel = activePreset?.journey
+    ? (spinning ? "出発指示を選んでいます…" : "旅のルーレットを回す")
+    : activePreset?.id === "workout"
+      ? (spinning ? "選んでいます…" : "筋トレを決める")
+      : activePreset?.id === "free"
+        ? (spinning ? "選んでいます…" : "フリールーレットを回す")
+        : spinning ? "選んでいます…" : "ルーレットを回す";
 
   return (
     <main className="app-shell">
@@ -959,7 +981,7 @@ export default function Home() {
             </section>
             <div className="preset-grid" aria-label="プリセットを選ぶ">
               {homePresets.map((preset) => (
-                <button key={preset.id} className={`preset-card ${preset.tone} ${preset.id === "free" ? "free-card" : ""} ${activeId === preset.id ? "selected" : ""}`} aria-pressed={activeId === preset.id} disabled={spinning} onClick={() => { setActiveId(preset.id); setResult(null); }}>
+                <button key={preset.id} className={`preset-card ${preset.tone} ${preset.id === "free" ? "free-card" : ""} ${activeId === preset.id ? "selected" : ""}`} aria-pressed={activeId === preset.id} disabled={spinning} onClick={() => { setActiveId(preset.id); setResult(null); setStopIndex(null); }}>
                   {activeId === preset.id && <span className="preset-check" aria-hidden="true">✓</span>}
                   <span className="preset-icon"><PresetGlyph id={preset.id} /></span><span className="preset-copy"><b>{preset.name}</b>{preset.id === "free" && <small>6つの枠を自由に決める</small>}</span><span className="preset-arrow" aria-hidden="true">›</span>
                 </button>
@@ -968,7 +990,7 @@ export default function Home() {
 
             <section className={`wheel-stage ${activePreset.tone}`}>
               <div className="wheel-pointer">▼</div>
-              <button className={`wheel wheel-${activePreset.id} ${spinning ? "is-spinning" : ""}`} style={{ "--rotation": `${rotation}deg` } as React.CSSProperties} onClick={spin} disabled={spinning} aria-label={activePreset.journey ? "旅の出発方角を決める" : "ルーレットを回す"}>
+              <button className={`wheel wheel-${activePreset.id} ${spinning ? "is-spinning" : ""}`} style={{ "--rotation": `${rotation}deg` } as React.CSSProperties} onClick={spin} disabled={spinning} aria-label={activePreset.journey ? "旅ルーレット本体で出発指示を決める" : "ルーレット本体を回す"} data-stop-index={stopIndex ?? ""} data-result-label={result?.label ?? ""}>
                 {wheelLabels.map((label, index) => {
                   const entry = visibleWheelItems[index];
                   const empty = activePreset.id === "free" && !entry?.enabled;
@@ -981,7 +1003,6 @@ export default function Home() {
             </section>
 
             <div className="home-action-stack">
-              <button className="primary-button spin-button" onClick={spin} disabled={spinning}><ActionGlyph kind="spin" />{activePreset.journey ? (spinning ? "方角を選んでいます…" : "旅のルーレットを回す") : activePreset.id === "workout" ? (spinning ? "選んでいます…" : "筋トレを決める") : activePreset.id === "free" ? (spinning ? "選んでいます…" : "フリールーレットを回す") : spinning ? "選んでいます…" : "ルーレットを回す"}</button>
               {activePreset.journey && <button className="mode-secondary-action journey-open-button" disabled={spinning} onClick={openJourney}><ActionGlyph kind="map" />旅モードを開く</button>}
               {activePreset.id === "free" && <button className="mode-secondary-action free-edit-button" disabled={spinning} onClick={() => { setManageId("free"); setCustomPickerOpen(false); setView("presets"); }}><ActionGlyph kind="edit" />6つの内容を編集</button>}
             </div>
@@ -993,7 +1014,7 @@ export default function Home() {
               </section> : <section className="result-card" aria-live="polite">
                 <div><span className="result-kicker">TODAY&apos;S PICK</span><h2>{result.label}</h2></div>
                 <div className="result-actions">
-                  {activePreset.journey ? <button onClick={openJourney}>この方角で旅へ</button> : <button onClick={acceptResult}>これに決定</button>}<button onClick={spin}>もう一度</button>
+                  {activePreset.journey ? <button onClick={openJourney}>この出発指示で旅へ</button> : <button onClick={acceptResult}>これに決定</button>}<button onClick={spin}>もう一度</button>
                   {result.minutes && <button className="timer-button" onClick={startTimer}>{result.minutes}分タイマーを開始</button>}
                 </div>
               </section>
@@ -1021,7 +1042,8 @@ export default function Home() {
               </>
             ) : (
               <>
-                <div className="journey-status"><span>出発</span><b>{data.activeJourney.initialDirection}</b><small>{data.activeJourney.steps.length}回目</small></div>
+                <div className="journey-status"><span>出発指示</span><b>{data.activeJourney.initialDirection}</b><small>{data.activeJourney.steps.length}回目</small></div>
+                <p className="journey-start-guidance">まず出発指示に従い、安全に停車してから次の4連指示を確認してください。</p>
                 {data.activeJourney.turnaroundShown && <div className="turnaround">そろそろ折り返し。安全な帰り道を選ぼう。</div>}
                 <section className={`reel-machine ${journeySpinning ? "is-spinning" : ""}`} aria-label="旅の4連ルーレット" aria-busy={journeySpinning}>
                   <div className="reel-machine-header"><span>TRIP SLOT 04</span><b>{journeySpinning ? "ぐるぐる選択中…" : "次の冒険が決まりました"}</b></div>
@@ -1072,7 +1094,7 @@ export default function Home() {
             <section className={`preset-summary-card ${managedPreset.tone}`}>
               <span className="summary-glyph"><PresetGlyph id={managedPreset.id} /></span>
               <div><small>SELECTED PRESET</small><h2>{managedPreset.name}</h2><p>{managedPreset.description}</p><b>{managedPreset.items.filter((entry) => entry.enabled).length}個の候補が有効</b></div>
-              <button onClick={() => { setActiveId(managedPreset.id); setResult(null); setView("home"); }}>このプリセットを使う <span>→</span></button>
+              <button onClick={() => { setActiveId(managedPreset.id); setResult(null); setStopIndex(null); setView("home"); }}>このプリセットを使う <span>→</span></button>
             </section>
 
             <section className="candidate-editor"><div className="preset-candidate-header"><h2>{managedPreset.id === "free" ? "6つの内容" : `${managedPreset.name}の候補`}</h2><span>{managedPreset.items.filter((entry) => entry.enabled).length}/{managedPreset.items.length}</span></div>
@@ -1099,6 +1121,7 @@ export default function Home() {
           </div>
         )}
 
+        {view === "home" && activePreset && <div className="home-fixed-action" data-testid="home-fixed-action"><button className="primary-button spin-button" onClick={spin} disabled={spinning} aria-busy={spinning}><ActionGlyph kind="spin" />{spinButtonLabel}</button></div>}
         {view !== "timer" && view !== "journey" && <nav className="bottom-nav" aria-label="メインメニュー"><button className={view === "home" ? "active" : ""} aria-current={view === "home" ? "page" : undefined} onClick={() => setView("home")}><span className="nav-wheel" aria-hidden="true">✺</span>ルーレット</button><button className={view === "history" ? "active" : ""} aria-current={view === "history" ? "page" : undefined} onClick={() => setView("history")}><span className="nav-clock" aria-hidden="true">◷</span>履歴</button><button className={view === "presets" ? "active" : ""} aria-current={view === "presets" ? "page" : undefined} onClick={() => setView("presets")}><span className="nav-star" aria-hidden="true">☆</span>プリセット</button></nav>}
         {(view === "timer" || view === "journey") && <button className="floating-back" onClick={goHome} aria-label="ホームへ戻る">←</button>}
         {candidateEditor && editingCandidate && <div className="editor-backdrop" onKeyDown={handleCandidateDialogKeyDown} onMouseDown={(event) => { if (event.currentTarget === event.target) closeCandidateEditor(); }}><section ref={candidateDialogRef} className="candidate-dialog" role="dialog" aria-modal="true" aria-labelledby="candidate-dialog-title"><p className="eyebrow">EDIT CANDIDATE</p><h2 id="candidate-dialog-title">候補を編集</h2><label htmlFor="candidate-edit-input">候補の内容</label><input id="candidate-edit-input" value={candidateEditor.draft} onChange={(event) => setCandidateEditor({ ...candidateEditor, draft: event.target.value })} onKeyDown={(event) => event.key === "Enter" && !event.nativeEvent.isComposing && saveCandidateEdit()} maxLength={80} autoFocus /><div className="dialog-actions"><button className="dialog-save" onClick={saveCandidateEdit}>保存</button><button onClick={closeCandidateEditor}>キャンセル</button></div><button className="dialog-delete" onClick={deleteCandidateFromEditor}>{candidateEditor.presetId === "free" ? "この枠を空に戻す" : "この候補を削除"}</button></section></div>}

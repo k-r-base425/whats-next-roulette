@@ -39,6 +39,12 @@ jobs:
       - name: Run app tests
         run: npm test
 
+      - name: Install browser for interaction tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser interaction tests
+        run: npm run test:e2e
+
       - name: Build static site
         env:
           GITHUB_ACTIONS: "true"
